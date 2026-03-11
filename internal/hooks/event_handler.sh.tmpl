@@ -132,6 +132,12 @@ if [ -z "${TERM_PROGRAM:-}" ]; then
     fi
 fi
 
+# Auto-detect tmux if not yet resolved (self-healing for mid-session hook installs)
+CURRENT_TMUX=$(echo "$STATE" | jq -r '.tmux_session // empty')
+if [ -z "$CURRENT_TMUX" ]; then
+    detect_tmux
+fi
+
 case "$EVENT" in
     SessionStart)
         CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
