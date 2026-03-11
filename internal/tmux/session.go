@@ -10,9 +10,12 @@ func IsAvailable() bool {
 	return err == nil
 }
 
-func SendKeys(session, windowIndex, pane, keys string) error {
+// SendKeys sends a keystroke sequence to a tmux pane.
+// Each argument after the target is a separate key to send.
+func SendKeys(session, windowIndex, pane string, keys ...string) error {
 	target := session + ":" + windowIndex + "." + pane
-	return exec.Command("tmux", "send-keys", "-t", target, keys, "Enter").Run()
+	args := append([]string{"send-keys", "-t", target}, keys...)
+	return exec.Command("tmux", args...).Run()
 }
 
 func SelectPane(session, windowIndex, pane string) error {

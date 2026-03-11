@@ -21,14 +21,14 @@ func (n *Navigator) Approve(agent state.AgentState) error {
 	if agent.TmuxSession == "" {
 		return nil
 	}
-	return SendKeys(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, "y")
+	return SendKeys(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, "Enter")
 }
 
 func (n *Navigator) Deny(agent state.AgentState) error {
 	if agent.TmuxSession == "" {
 		return nil
 	}
-	return SendKeys(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, "n")
+	return SendKeys(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, "Escape")
 }
 
 func (n *Navigator) JumpToNextAttention(agents []state.AgentState) error {
