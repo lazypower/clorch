@@ -8,28 +8,7 @@ Alt-tab. Scroll. Alt-tab. Scroll. Alt-tab. Approve. Wrong pane. Alt-tab.
 
 clorch fixes this. One dashboard. Every agent. Every permission. Every dollar.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  CLORCH  ▪ 4 agents  ▪ 2 working  1 idle  1 waiting  │ $23 │
-├────────────────────────────────┬────────────────────────────┤
-│  AGENTS                        │  ACTIONS                   │
-│                                │                            │
-│  ● api-server  working  main   │  a) docs: Bash             │
-│    ~/code/backend  2s ago      │     rm -rf node_modules/   │
-│                                │                            │
-│  ● frontend    idle     main   │  b) infra: question        │
-│    ~/code/web  45s ago         │     Which cloud provider?  │
-│                                │                            │
-│  ◉ docs        WAITING  docs   │                            │
-│    ~/code/docs  8s ago         │                            │
-│                                │                            │
-│  ◉ infra       QUESTION main   │                            │
-│    ~/code/infra  12s ago       │                            │
-│                                │                            │
-├────────────────────────────────┴────────────────────────────┤
-│  j/k:navigate  →:jump  y/n:approve  Y:all  !:yolo  ?:help  │
-└─────────────────────────────────────────────────────────────┘
-```
+![clorch dashboard](screenshot.png)
 
 ## Install
 
