@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          go build -ldflags "${LDFLAGS}" -o "clorch-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/clorch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clorch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: clorch-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/clorch-*
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN not set, skipping Homebrew update"
+            exit 0
+          fi
+
+          VERSION=${GITHUB_REF_NAME#v}
+
+          gh release download "v${VERSION}" --repo lazypower/clorch -p "clorch-darwin-arm64" -D /tmp
+          SHA_DARWIN_ARM64=$(sha256sum /tmp/clorch-darwin-arm64 | cut -d' ' -f1)
+          gh release download "v${VERSION}" --repo lazypower/clorch -p "clorch-darwin-amd64" -D /tmp
+          SHA_DARWIN_AMD64=$(sha256sum /tmp/clorch-darwin-amd64 | cut -d' ' -f1)
+          gh release download "v${VERSION}" --repo lazypower/clorch -p "clorch-linux-amd64" -D /tmp
+          SHA_LINUX_AMD64=$(sha256sum /tmp/clorch-linux-amd64 | cut -d' ' -f1)
+          gh release download "v${VERSION}" --repo lazypower/clorch -p "clorch-linux-arm64" -D /tmp
+          SHA_LINUX_ARM64=$(sha256sum /tmp/clorch-linux-arm64 | cut -d' ' -f1)
+
+          cat > /tmp/clorch.rb <<FORMULA
+          class Clorch < Formula
+            desc "Command center for your Claude Code fleet"
+            homepage "https://github.com/lazypower/clorch"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/lazypower/clorch/releases/download/v#{version}/clorch-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+
+                def install
+                  bin.install "clorch-darwin-arm64" => "clorch"
+                end
+              end
+
+              on_intel do
+                url "https://github.com/lazypower/clorch/releases/download/v#{version}/clorch-darwin-amd64"
+                sha256 "${SHA_DARWIN_AMD64}"
+
+                def install
+                  bin.install "clorch-darwin-amd64" => "clorch"
+                end
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/lazypower/clorch/releases/download/v#{version}/clorch-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+
+                def install
+                  bin.install "clorch-linux-arm64" => "clorch"
+                end
+              end
+
+              on_intel do
+                url "https://github.com/lazypower/clorch/releases/download/v#{version}/clorch-linux-amd64"
+                sha256 "${SHA_LINUX_AMD64}"
+
+                def install
+                  bin.install "clorch-linux-amd64" => "clorch"
+                end
+              end
+            end
+
+            test do
+              assert_match "clorch", shell_output("#{bin}/clorch version")
+            end
+          end
+          FORMULA
+
+          sed -i 's/^          //' /tmp/clorch.rb
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/lazypower/homebrew-tap.git" /tmp/tap
+          cp /tmp/clorch.rb /tmp/tap/Formula/clorch.rb
+          cd /tmp/tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/clorch.rb
+          git commit -m "clorch ${VERSION}"
+          git push

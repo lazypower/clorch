@@ -13,6 +13,12 @@ clorch fixes this. One dashboard. Every agent. Every permission. Every dollar.
 ## Install
 
 ```sh
+brew install lazypower/tap/clorch
+```
+
+Or with Go:
+
+```sh
 go install github.com/lazypower/clorch/cmd/clorch@latest
 ```
 
@@ -48,6 +54,32 @@ clorch TUI  ◀──fsnotify─────────────────
 
 No API calls. No terminal scraping. No process injection. Claude Code's native hook system fires events, two bash scripts write JSON state files, and clorch watches the directory. Sub-100ms updates on both macOS and Linux.
 
+## Features
+
+### Branch Lineage Tree
+
+Spawn worktree branches with `b` and clorch renders the parent→child relationship as a tree in the agent list. Label any agent with `l` for quick identification.
+
+### Session Timeline
+
+Press `d` to open the detail panel. Every tool call, permission request, prompt, subagent spawn, and compaction is logged with timestamps. Newest events at the top, constrained to fit the viewport.
+
+### Per-Session Cost
+
+Each agent shows its running cost computed from Claude Code's JSONL transcripts. Input/output/cached token breakdowns in the detail panel. Aggregate burn rate in the header.
+
+### Compact Alerting
+
+Agents approaching context limits get visual warnings — yellow at 3 compactions, red at 5. Helps you notice when an agent is churning through context before it falls off a cliff.
+
+### Artifact Awareness
+
+The detail panel tracks every file modified by Edit/Write tools during a session. Most recent files shown, paths shortened relative to the agent's working directory.
+
+### Stale Hooks Warning
+
+When you upgrade clorch, the footer warns you if installed hooks are from an older version. Run `clorch init` to update them.
+
 ## Keybindings
 
 | Key | Action |
@@ -60,6 +92,9 @@ No API calls. No terminal scraping. No process injection. Claude Code's native h
 | `!` | Toggle YOLO mode |
 | `s` | Toggle sound notifications |
 | `d` | Agent detail panel |
+| `l` | Label selected agent |
+| `b` | Branch selected agent (worktree) |
+| `i` | Inject prompt into agent |
 | `?` | Help |
 | `q` | Quit |
 
@@ -137,6 +172,7 @@ clorch parses Claude Code's JSONL session transcripts and shows:
 - Total cost for today's sessions
 - Rolling 10-minute burn rate ($/hour)
 - Per-model token breakdowns
+- Per-session cost in the agent table and detail panel
 
 Displayed in the TUI header. No API keys needed — it reads the local transcript files directly.
 
