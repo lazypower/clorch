@@ -63,7 +63,7 @@ func TestBranch_NoTmuxSession(t *testing.T) {
 		CWD:         "/tmp",
 		TmuxSession: "",
 	}
-	result := Branch(agent, "/tmp/branch-target")
+	result := Branch(agent, "/tmp/branch-target", "")
 	if result.Err == nil {
 		t.Error("expected error for agent with no tmux session")
 	}

@@ -7,8 +7,8 @@ import (
 	"github.com/lazypower/clorch/internal/usage"
 )
 
-func renderHeader(summary state.StatusSummary, usageSummary usage.UsageSummary, yolo bool, width int) string {
-	title := titleStyle.Render("CLORCH")
+func renderHeader(summary state.StatusSummary, usageSummary usage.UsageSummary, yolo bool, version string, width int) string {
+	title := titleStyle.Render("CLORCH " + version)
 	counts := headerStyle.Render(fmt.Sprintf("▪ %d agents  ▪ %s  %s  %s",
 		summary.Total,
 		agentWorkingStyle.Render(fmt.Sprintf("%d working", summary.Working)),

@@ -1,6 +1,7 @@
 package branch
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -11,6 +12,12 @@ import (
 
 	"github.com/lazypower/clorch/internal/state"
 )
+
+// Metadata written to the branch directory so the hook script can pick it up.
+type Metadata struct {
+	BranchedFrom string `json:"branched_from"`
+	Label        string `json:"label,omitempty"`
+}
 
 // Max directory size (in bytes) we'll copy without git. Prevents accidentally
 // cloning $HOME or other massive directories. 500MB.
@@ -25,7 +32,7 @@ type Result struct {
 // Branch creates a new working directory (git worktree or directory copy) and
 // spawns a new Claude Code session in a tmux window. Clorch never holds the
 // PID — tmux owns the process, and clorch discovers it via hooks.
-func Branch(agent state.AgentState, targetDir string) Result {
+func Branch(agent state.AgentState, targetDir, label string) Result {
 	if agent.TmuxSession == "" {
 		return Result{Err: fmt.Errorf("agent has no tmux session")}
 	}
@@ -49,6 +56,12 @@ func Branch(agent state.AgentState, targetDir string) Result {
 		if err := safeCopyDir(agent.CWD, targetDir); err != nil {
 			return Result{Err: fmt.Errorf("copy dir: %w", err)}
 		}
+	}
+
+	// Write branch metadata so the hook script can tag the new session
+	meta := Metadata{BranchedFrom: agent.SessionID, Label: label}
+	if err := writeMetadata(targetDir, meta); err != nil {
+		return Result{Err: fmt.Errorf("write metadata: %w", err)}
 	}
 
 	// Spawn claude in a new tmux window — tmux owns the process
@@ -122,6 +135,31 @@ func dirSize(path string) (int64, error) {
 		return total, err
 	}
 	return total, nil
+}
+
+func writeMetadata(dir string, meta Metadata) error {
+	metaDir := filepath.Join(dir, ".clorch")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(metaDir, "branch.json"), data, 0644)
+}
+
+// ReadMetadata reads branch metadata from a working directory, if it exists.
+func ReadMetadata(cwd string) *Metadata {
+	data, err := os.ReadFile(filepath.Join(cwd, ".clorch", "branch.json"))
+	if err != nil {
+		return nil
+	}
+	var meta Metadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil
+	}
+	return &meta
 }
 
 func isDangerousDir(dir string) bool {

@@ -39,6 +39,8 @@ type AgentState struct {
 	TmuxWindowIndex     string   `json:"tmux_window_index"`
 	TermProgram         string           `json:"term_program"`
 	RecentTools         []RecentToolCall `json:"recent_tools"`
+	BranchedFrom        string           `json:"branched_from,omitempty"`
+	BranchLabel         string           `json:"branch_label,omitempty"`
 
 	DisplayName   string        `json:"-"`
 	StaleDuration time.Duration `json:"-"`

@@ -158,6 +158,18 @@ case "$EVENT" in
         update_null "tool_request_summary"
         detect_tmux
         detect_git "$CWD"
+        # Pick up branch metadata if this was spawned by clorch branch
+        BRANCH_META="$CWD/.clorch/branch.json"
+        if [ -f "$BRANCH_META" ]; then
+            BRANCHED_FROM=$(jq -r '.branched_from // empty' "$BRANCH_META")
+            BRANCH_LABEL=$(jq -r '.label // empty' "$BRANCH_META")
+            if [ -n "$BRANCHED_FROM" ]; then
+                update "branched_from" "$BRANCHED_FROM"
+            fi
+            if [ -n "$BRANCH_LABEL" ]; then
+                update "branch_label" "$BRANCH_LABEL"
+            fi
+        fi
         ;;
     PreToolUse)
         TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')

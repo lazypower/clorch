@@ -34,8 +34,15 @@ type Model struct {
 	injectMode  bool
 	injectInput textinput.Model
 
-	branchMode  bool
-	branchInput textinput.Model
+	branchMode    bool
+	branchStep    int // 0 = path, 1 = label
+	branchPath    string
+	branchInput   textinput.Model
+
+	labelMode  bool
+	labelInput textinput.Model
+
+	version string
 
 	stateManager *state.Manager
 	rules        *rules.Engine
@@ -50,6 +57,7 @@ func NewModel(
 	rulesEngine *rules.Engine,
 	notifier *notify.Notifier,
 	navigator *tmux.Navigator,
+	version string,
 ) Model {
 	ti := textinput.New()
 	ti.Placeholder = "type message to inject..."
@@ -59,9 +67,15 @@ func NewModel(
 	bi.Placeholder = "path for branch working directory..."
 	bi.CharLimit = 500
 
+	li := textinput.New()
+	li.Placeholder = "label (optional, Enter to skip)..."
+	li.CharLimit = 100
+
 	return Model{
 		injectInput:  ti,
 		branchInput:  bi,
+		labelInput:   li,
+		version:      version,
 		stateManager: stateManager,
 		rules:        rulesEngine,
 		notifier:     notifier,
@@ -174,24 +188,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Type {
 			case tea.KeyEsc:
 				m.branchMode = false
+				m.branchStep = 0
 				m.branchInput.SetValue("")
 				m.branchInput.Blur()
 				return m, nil
 			case tea.KeyEnter:
-				targetDir := m.branchInput.Value()
+				if m.branchStep == 0 {
+					// Step 0: path confirmed, move to label
+					m.branchPath = m.branchInput.Value()
+					if m.branchPath == "" {
+						m.branchMode = false
+						return m, nil
+					}
+					m.branchStep = 1
+					m.branchInput.SetValue("")
+					m.branchInput.Placeholder = "label (optional, Enter to skip)..."
+					return m, nil
+				}
+				// Step 1: label confirmed (may be empty), execute branch
+				label := m.branchInput.Value()
 				m.branchMode = false
+				m.branchStep = 0
 				m.branchInput.SetValue("")
+				m.branchInput.Placeholder = "path for branch working directory..."
 				m.branchInput.Blur()
-				if targetDir != "" && m.selectedIdx < len(m.agents) {
+				if m.selectedIdx < len(m.agents) {
 					agent := m.agents[m.selectedIdx]
+					targetDir := m.branchPath
 					return m, func() tea.Msg {
-						return BranchResultMsg{Result: branch.Branch(agent, targetDir)}
+						return BranchResultMsg{Result: branch.Branch(agent, targetDir, label)}
 					}
 				}
 				return m, nil
 			default:
 				var cmd tea.Cmd
 				m.branchInput, cmd = m.branchInput.Update(msg)
+				return m, cmd
+			}
+		}
+		if m.labelMode {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.labelMode = false
+				m.labelInput.SetValue("")
+				m.labelInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				label := m.labelInput.Value()
+				m.labelMode = false
+				m.labelInput.SetValue("")
+				m.labelInput.Blur()
+				if m.selectedIdx < len(m.agents) {
+					agent := m.agents[m.selectedIdx]
+					return m, func() tea.Msg {
+						setLabel(m.stateManager.StateDir(), agent.SessionID, label)
+						return nil
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.labelInput, cmd = m.labelInput.Update(msg)
 				return m, cmd
 			}
 		}
@@ -240,6 +297,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.branchInput.Focus()
 				return m, m.branchInput.Cursor.BlinkCmd()
 			}
+		case key.Matches(msg, keys.Label):
+			if m.selectedIdx < len(m.agents) {
+				m.labelMode = true
+				m.labelInput.SetValue("")
+				m.labelInput.Focus()
+				return m, m.labelInput.Cursor.BlinkCmd()
+			}
 		case key.Matches(msg, keys.Help):
 			m.showHelp = true
 		default:
@@ -259,7 +323,7 @@ func (m Model) View() string {
 		return m.renderHelp()
 	}
 
-	header := renderHeader(m.summary, m.usageSummary, m.yoloEnabled, m.width)
+	header := renderHeader(m.summary, m.usageSummary, m.yoloEnabled, m.version, m.width)
 	leftWidth := m.width * 60 / 100
 	rightWidth := m.width - leftWidth - 3
 
@@ -283,6 +347,12 @@ func (m Model) View() string {
 			agentName = m.agents[m.selectedIdx].SessionID
 		}
 		footer = footerStyle.Render("Inject to " + agentName + ": " + m.injectInput.View())
+	} else if m.labelMode && m.selectedIdx < len(m.agents) {
+		agentName := m.agents[m.selectedIdx].ProjectName
+		if agentName == "" {
+			agentName = m.agents[m.selectedIdx].SessionID
+		}
+		footer = footerStyle.Render("Label " + agentName + ": " + m.labelInput.View())
 	} else if m.branchMode && m.selectedIdx < len(m.agents) {
 		agentName := m.agents[m.selectedIdx].ProjectName
 		if agentName == "" {
@@ -381,6 +451,7 @@ func (m Model) renderHelp() string {
     Y             Approve ALL pending permissions
     i             Inject prompt to selected agent
     b             Branch session (git worktree + new tmux window)
+    l             Set/change label for selected agent
 
   Settings
     !             Toggle YOLO mode (auto-approve)
@@ -392,6 +463,32 @@ func (m Model) renderHelp() string {
 
   Press any key to close this help.
 `)
+}
+
+func setLabel(stateDir, sessionID, label string) {
+	path := filepath.Join(stateDir, sessionID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	if label == "" {
+		delete(raw, "branch_label")
+	} else {
+		raw["branch_label"] = label
+	}
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	tmpFile := path + ".tmp"
+	if err := os.WriteFile(tmpFile, out, 0644); err != nil {
+		return
+	}
+	os.Rename(tmpFile, path)
 }
 
 func maxInt(a, b int) int {

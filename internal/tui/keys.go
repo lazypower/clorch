@@ -13,7 +13,8 @@ type keyMap struct {
 	Sound      key.Binding
 	Detail     key.Binding
 	Inject     key.Binding
-	Branch       key.Binding
+	Branch     key.Binding
+	Label      key.Binding
 	Help       key.Binding
 	Quit       key.Binding
 }
@@ -30,6 +31,7 @@ var keys = keyMap{
 	Detail:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail panel")),
 	Inject:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inject prompt")),
 	Branch:     key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch session")),
+	Label:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "label agent")),
 	Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }

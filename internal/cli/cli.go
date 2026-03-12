@@ -93,7 +93,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	notifier := notify.NewNotifier()
 	navigator := tmux.NewNavigator()
 
-	model := tuipkg.NewModel(mgr, rulesEngine, notifier, navigator)
+	model := tuipkg.NewModel(mgr, rulesEngine, notifier, navigator, version)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	// Start watcher
