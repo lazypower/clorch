@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeState(t *testing.T, dir string, agent AgentState) {
@@ -214,5 +215,192 @@ func TestComputeSummary(t *testing.T) {
 	}
 	if s.Error != 1 {
 		t.Errorf("error: got %d, want 1", s.Error)
+	}
+}
+
+// --- Stuck detector tests ---
+
+func TestDetectStuckLoop_NoTools(t *testing.T) {
+	if detectStuckLoop(nil, time.Now()) {
+		t.Error("expected no stuck loop with nil tools")
+	}
+	if detectStuckLoop([]RecentToolCall{}, time.Now()) {
+		t.Error("expected no stuck loop with empty tools")
+	}
+}
+
+func TestDetectStuckLoop_TooFewCalls(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-3 * time.Second).Format(time.RFC3339)},
+	}
+	if detectStuckLoop(tools, now) {
+		t.Error("expected no stuck loop with only 2 calls")
+	}
+}
+
+func TestDetectStuckLoop_Detected(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-20 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-10 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+	}
+	if !detectStuckLoop(tools, now) {
+		t.Error("expected stuck loop detected")
+	}
+}
+
+func TestDetectStuckLoop_DifferentTools(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-20 * time.Second).Format(time.RFC3339)},
+		{Tool: "Write", ArgsHash: "def456", Time: now.Add(-10 * time.Second).Format(time.RFC3339)},
+		{Tool: "Bash", ArgsHash: "ghi789", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+	}
+	if detectStuckLoop(tools, now) {
+		t.Error("expected no stuck loop with different tools")
+	}
+}
+
+func TestDetectStuckLoop_SameToolDifferentArgs(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "aaa", Time: now.Add(-20 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "bbb", Time: now.Add(-10 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "ccc", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+	}
+	if detectStuckLoop(tools, now) {
+		t.Error("expected no stuck loop with different args hashes")
+	}
+}
+
+func TestDetectStuckLoop_OldCallsIgnored(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-60 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-50 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-40 * time.Second).Format(time.RFC3339)},
+	}
+	if detectStuckLoop(tools, now) {
+		t.Error("expected no stuck loop — all calls older than 30s")
+	}
+}
+
+func TestDetectStuckLoop_MixedTimestamps(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-60 * time.Second).Format(time.RFC3339)}, // old, ignored
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-20 * time.Second).Format(time.RFC3339)},
+		{Tool: "Write", ArgsHash: "xyz", Time: now.Add(-15 * time.Second).Format(time.RFC3339)},   // different tool
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-10 * time.Second).Format(time.RFC3339)},
+		{Tool: "Read", ArgsHash: "abc123", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+	}
+	if !detectStuckLoop(tools, now) {
+		t.Error("expected stuck loop — 3 matching calls within 30s window")
+	}
+}
+
+func TestDetectStuckLoop_InvalidTimestamp(t *testing.T) {
+	now := time.Now()
+	tools := []RecentToolCall{
+		{Tool: "Read", ArgsHash: "abc123", Time: "not-a-timestamp"},
+		{Tool: "Read", ArgsHash: "abc123", Time: "also-bad"},
+		{Tool: "Read", ArgsHash: "abc123", Time: "nope"},
+	}
+	if detectStuckLoop(tools, now) {
+		t.Error("expected no stuck loop with invalid timestamps")
+	}
+}
+
+// --- Attention sort tests ---
+
+func TestAttentionSort_RecencyWithinTier(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewManager(dir)
+
+	now := time.Now()
+	writeState(t, dir, AgentState{
+		SessionID:     "old-worker",
+		Status:        StatusWorking,
+		LastEventTime: now.Add(-60 * time.Second).Format(time.RFC3339),
+	})
+	writeState(t, dir, AgentState{
+		SessionID:     "new-worker",
+		Status:        StatusWorking,
+		LastEventTime: now.Add(-5 * time.Second).Format(time.RFC3339),
+	})
+
+	agents, _, _ := mgr.Scan()
+	if len(agents) != 2 {
+		t.Fatalf("expected 2 agents, got %d", len(agents))
+	}
+	// More recently active agent should sort first within same tier
+	if agents[0].SessionID != "new-worker" {
+		t.Errorf("expected new-worker first, got %s", agents[0].SessionID)
+	}
+}
+
+func TestAttentionSort_UrgencyBeatsRecency(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewManager(dir)
+
+	now := time.Now()
+	// Recent but just working
+	writeState(t, dir, AgentState{
+		SessionID:     "active",
+		Status:        StatusWorking,
+		LastEventTime: now.Add(-1 * time.Second).Format(time.RFC3339),
+	})
+	// Old but waiting permission — should still sort first
+	writeState(t, dir, AgentState{
+		SessionID:     "waiting",
+		Status:        StatusWaitingPermission,
+		LastEventTime: now.Add(-120 * time.Second).Format(time.RFC3339),
+	})
+
+	agents, _, _ := mgr.Scan()
+	if agents[0].SessionID != "waiting" {
+		t.Errorf("expected waiting agent first regardless of recency, got %s", agents[0].SessionID)
+	}
+}
+
+func TestStuckLoopDetectedInScan(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewManager(dir)
+
+	now := time.Now()
+	writeState(t, dir, AgentState{
+		SessionID:     "stuck",
+		Status:        StatusWorking,
+		LastEventTime: now.Format(time.RFC3339),
+		RecentTools: []RecentToolCall{
+			{Tool: "Read", ArgsHash: "aaa", Time: now.Add(-15 * time.Second).Format(time.RFC3339)},
+			{Tool: "Read", ArgsHash: "aaa", Time: now.Add(-10 * time.Second).Format(time.RFC3339)},
+			{Tool: "Read", ArgsHash: "aaa", Time: now.Add(-5 * time.Second).Format(time.RFC3339)},
+		},
+	})
+	writeState(t, dir, AgentState{
+		SessionID:     "healthy",
+		Status:        StatusWorking,
+		LastEventTime: now.Format(time.RFC3339),
+	})
+
+	agents, _, _ := mgr.Scan()
+	var stuck, healthy *AgentState
+	for i := range agents {
+		if agents[i].SessionID == "stuck" {
+			stuck = &agents[i]
+		}
+		if agents[i].SessionID == "healthy" {
+			healthy = &agents[i]
+		}
+	}
+	if stuck == nil || !stuck.StuckLoop {
+		t.Error("expected stuck agent to have StuckLoop=true")
+	}
+	if healthy == nil || healthy.StuckLoop {
+		t.Error("expected healthy agent to have StuckLoop=false")
 	}
 }

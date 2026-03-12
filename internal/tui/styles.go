@@ -31,4 +31,6 @@ var (
 	staleCritStyle     = lipgloss.NewStyle().Foreground(nordRed)
 	yoloActiveStyle    = lipgloss.NewStyle().Foreground(nordRed).Bold(true)
 	sparkStyle         = lipgloss.NewStyle().Foreground(nordGreen)
+	idleFadeStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#3b4252"))
+	stuckLoopStyle     = lipgloss.NewStyle().Foreground(nordOrange).Bold(true)
 )

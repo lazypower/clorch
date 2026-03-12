@@ -51,16 +51,19 @@ func (m *Manager) Scan() ([]AgentState, StatusSummary, []ActionItem) {
 				agent.StaleDuration = now.Sub(t)
 			}
 		}
+		agent.StuckLoop = detectStuckLoop(agent.RecentTools, now)
 		agents = append(agents, agent)
 	}
 
+	// Attention sort: urgency first, then recency within tier
 	sort.Slice(agents, func(i, j int) bool {
 		pi := statusPriority(agents[i].Status)
 		pj := statusPriority(agents[j].Status)
 		if pi != pj {
 			return pi < pj
 		}
-		return agents[i].LastEventTime > agents[j].LastEventTime
+		// Within same priority: most recently active first
+		return agents[i].StaleDuration < agents[j].StaleDuration
 	})
 
 	summary := ComputeSummary(agents)
@@ -206,4 +209,33 @@ func processAlive(pid int) bool {
 		return false
 	}
 	return process.Signal(syscall.Signal(0)) == nil
+}
+
+// detectStuckLoop returns true if 3+ recent tool calls with the same tool+args_hash
+// occurred within the last 30 seconds.
+func detectStuckLoop(recentTools []RecentToolCall, now time.Time) bool {
+	if len(recentTools) < 3 {
+		return false
+	}
+	cutoff := now.Add(-30 * time.Second)
+	type key struct {
+		tool     string
+		argsHash string
+	}
+	counts := make(map[key]int)
+	for _, rt := range recentTools {
+		t, err := time.Parse(time.RFC3339, rt.Time)
+		if err != nil {
+			continue
+		}
+		if t.Before(cutoff) {
+			continue
+		}
+		k := key{tool: rt.Tool, argsHash: rt.ArgsHash}
+		counts[k]++
+		if counts[k] >= 3 {
+			return true
+		}
+	}
+	return false
 }

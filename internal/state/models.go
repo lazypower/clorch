@@ -37,10 +37,19 @@ type AgentState struct {
 	TmuxPane            string   `json:"tmux_pane"`
 	TmuxSession         string   `json:"tmux_session"`
 	TmuxWindowIndex     string   `json:"tmux_window_index"`
-	TermProgram         string   `json:"term_program"`
+	TermProgram         string           `json:"term_program"`
+	RecentTools         []RecentToolCall `json:"recent_tools"`
 
 	DisplayName   string        `json:"-"`
 	StaleDuration time.Duration `json:"-"`
+	StuckLoop     bool          `json:"-"`
+}
+
+// RecentToolCall tracks a recent tool invocation for stuck-loop detection.
+type RecentToolCall struct {
+	Tool     string `json:"tool"`
+	ArgsHash string `json:"args_hash"`
+	Time     string `json:"time"`
 }
 
 // ActionItem represents a pending action requiring human attention.

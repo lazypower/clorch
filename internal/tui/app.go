@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lazypower/clorch/internal/notify"
@@ -29,6 +30,9 @@ type Model struct {
 	yoloEnabled   bool
 	soundEnabled  bool
 
+	injectMode  bool
+	injectInput textinput.Model
+
 	stateManager *state.Manager
 	rules        *rules.Engine
 	notifier     *notify.Notifier
@@ -43,7 +47,12 @@ func NewModel(
 	notifier *notify.Notifier,
 	navigator *tmux.Navigator,
 ) Model {
+	ti := textinput.New()
+	ti.Placeholder = "type message to inject..."
+	ti.CharLimit = 500
+
 	return Model{
+		injectInput:  ti,
 		stateManager: stateManager,
 		rules:        rulesEngine,
 		notifier:     notifier,
@@ -74,6 +83,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		for _, a := range m.agents {
 			m.notifier.OnTransition(a.SessionID, a.Status, a.ProjectName)
+		}
+
+		// Alert on stuck loops
+		for _, a := range m.agents {
+			if a.StuckLoop {
+				m.notifier.OnTransition(a.SessionID, "STUCK_LOOP", a.ProjectName)
+			}
 		}
 
 		var cmds []tea.Cmd
@@ -108,6 +124,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Could log to event log
 
 	case tea.KeyMsg:
+		if m.injectMode {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.injectMode = false
+				m.injectInput.SetValue("")
+				m.injectInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				value := m.injectInput.Value()
+				m.injectMode = false
+				m.injectInput.SetValue("")
+				m.injectInput.Blur()
+				if value != "" && m.selectedIdx < len(m.agents) {
+					agent := m.agents[m.selectedIdx]
+					if agent.TmuxSession != "" {
+						return m, func() tea.Msg {
+							tmux.SendLiteral(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, value)
+							tmux.SendKeys(agent.TmuxSession, agent.TmuxWindowIndex, agent.TmuxPane, "Enter")
+							return nil
+						}
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.injectInput, cmd = m.injectInput.Update(msg)
+				return m, cmd
+			}
+		}
 		if m.showHelp {
 			m.showHelp = false
 			return m, nil
@@ -141,6 +186,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifier.SetSound(m.soundEnabled)
 		case key.Matches(msg, keys.Detail):
 			m.showDetail = !m.showDetail
+		case key.Matches(msg, keys.Inject):
+			m.injectMode = true
+			m.injectInput.SetValue("")
+			m.injectInput.Focus()
+			return m, m.injectInput.Cursor.BlinkCmd()
 		case key.Matches(msg, keys.Help):
 			m.showHelp = true
 		default:
@@ -177,7 +227,16 @@ func (m Model) View() string {
 		lipgloss.NewStyle().Width(rightWidth).Render(rightPanel),
 	)
 
-	footer := renderFooter(m.yoloEnabled, m.soundEnabled)
+	var footer string
+	if m.injectMode && m.selectedIdx < len(m.agents) {
+		agentName := m.agents[m.selectedIdx].ProjectName
+		if agentName == "" {
+			agentName = m.agents[m.selectedIdx].SessionID
+		}
+		footer = footerStyle.Render("Inject to " + agentName + ": " + m.injectInput.View())
+	} else {
+		footer = renderFooter(m.yoloEnabled, m.soundEnabled)
+	}
 
 	return strings.Join([]string{
 		header,
@@ -265,6 +324,7 @@ func (m Model) renderHelp() string {
     y             Approve focused permission
     n             Deny focused permission
     Y             Approve ALL pending permissions
+    i             Inject prompt to selected agent
 
   Settings
     !             Toggle YOLO mode (auto-approve)

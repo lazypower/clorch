@@ -18,6 +18,13 @@ func SendKeys(session, windowIndex, pane string, keys ...string) error {
 	return exec.Command("tmux", args...).Run()
 }
 
+// SendLiteral sends literal text to a tmux pane (using -l flag so spaces and
+// special characters are not interpreted as key names).
+func SendLiteral(session, windowIndex, pane string, text string) error {
+	target := session + ":" + windowIndex + "." + pane
+	return exec.Command("tmux", "send-keys", "-t", target, "-l", text).Run()
+}
+
 func SelectPane(session, windowIndex, pane string) error {
 	target := session + ":" + windowIndex
 	if err := exec.Command("tmux", "select-window", "-t", target).Run(); err != nil {

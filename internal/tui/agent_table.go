@@ -66,17 +66,28 @@ func renderAgentRow(a state.AgentState, selected bool) string {
 		branch = agentIdleStyle.Render(a.GitBranch)
 	}
 
+	stuckIndicator := ""
+	if a.StuckLoop {
+		stuckIndicator = " " + stuckLoopStyle.Render("⚠ loop")
+	}
+
 	subagents := ""
 	if a.SubagentCount > 0 {
 		subagents = fmt.Sprintf(" [%d▸]", a.SubagentCount)
 	}
 
-	line1 := fmt.Sprintf("  %s %s  %s  %s%s  %s  %s",
-		indicator, name, statusText, spark, subagents, branch, agoStyled)
+	line1 := fmt.Sprintf("  %s %s  %s%s  %s%s  %s  %s",
+		indicator, name, statusText, stuckIndicator, spark, subagents, branch, agoStyled)
 	line2 := fmt.Sprintf("    %s  %s",
 		agentIdleStyle.Render(a.CWD), agentIdleStyle.Render(fmt.Sprintf("%d tools", a.ToolCount)))
 
 	result := line1 + "\n" + line2
+
+	// Idle fade: dim agents inactive for > 5 minutes
+	if a.StaleDuration > 5*time.Minute && a.Status == state.StatusIdle {
+		result = idleFadeStyle.Render(result)
+	}
+
 	if selected {
 		result = agentSelectedStyle.Render(result)
 	}

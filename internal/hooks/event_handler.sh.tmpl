@@ -161,10 +161,19 @@ case "$EVENT" in
         ;;
     PreToolUse)
         TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
+        TOOL_INPUT=$(echo "$INPUT" | jq -c '.tool_input // {}')
         update "status" "WORKING"
         update "last_tool" "$TOOL"
         increment "tool_count"
         STATE=$(echo "$STATE" | jq '.activity_history = ((.activity_history // [0,0,0,0,0,0,0,0,0,0]) | .[1:] + [.[- 1] + 1])')
+        # Track recent tool calls for stuck-loop detection
+        if command -v md5sum &>/dev/null; then
+            HASH=$(printf '%s' "$TOOL_INPUT" | md5sum | cut -c1-8)
+        else
+            HASH=$(printf '%s' "$TOOL_INPUT" | md5 | cut -c1-8)
+        fi
+        STATE=$(echo "$STATE" | jq --arg tool "$TOOL" --arg hash "$HASH" --arg time "$NOW" \
+            '.recent_tools = (((.recent_tools // []) + [{"tool": $tool, "args_hash": $hash, "time": $time}]) | .[-10:])')
         update_null "notification_message"
         update_null "tool_request_summary"
         ;;
