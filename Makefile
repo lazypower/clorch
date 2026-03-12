@@ -1,4 +1,4 @@
-VERSION := $(shell git describe --tags --always --dirty)
+VERSION := $(shell cat VERSION)
 
 .PHONY: build install clean test
 

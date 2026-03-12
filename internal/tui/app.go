@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazypower/clorch/internal/branch"
 	"github.com/lazypower/clorch/internal/notify"
 	"github.com/lazypower/clorch/internal/rules"
 	"github.com/lazypower/clorch/internal/state"
@@ -33,6 +34,9 @@ type Model struct {
 	injectMode  bool
 	injectInput textinput.Model
 
+	branchMode  bool
+	branchInput textinput.Model
+
 	stateManager *state.Manager
 	rules        *rules.Engine
 	notifier     *notify.Notifier
@@ -51,8 +55,13 @@ func NewModel(
 	ti.Placeholder = "type message to inject..."
 	ti.CharLimit = 500
 
+	bi := textinput.New()
+	bi.Placeholder = "path for branch working directory..."
+	bi.CharLimit = 500
+
 	return Model{
 		injectInput:  ti,
+		branchInput:  bi,
 		stateManager: stateManager,
 		rules:        rulesEngine,
 		notifier:     notifier,
@@ -66,6 +75,10 @@ type ApprovalResultMsg struct {
 	SessionID string
 	Action    string
 	Err       error
+}
+
+type BranchResultMsg struct {
+	Result branch.Result
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -123,6 +136,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ApprovalResultMsg:
 		// Could log to event log
 
+	case BranchResultMsg:
+		// Branch completed — new session will appear via hook discovery
+		// Could log result or show error
+
 	case tea.KeyMsg:
 		if m.injectMode {
 			switch msg.Type {
@@ -150,6 +167,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				var cmd tea.Cmd
 				m.injectInput, cmd = m.injectInput.Update(msg)
+				return m, cmd
+			}
+		}
+		if m.branchMode {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.branchMode = false
+				m.branchInput.SetValue("")
+				m.branchInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				targetDir := m.branchInput.Value()
+				m.branchMode = false
+				m.branchInput.SetValue("")
+				m.branchInput.Blur()
+				if targetDir != "" && m.selectedIdx < len(m.agents) {
+					agent := m.agents[m.selectedIdx]
+					return m, func() tea.Msg {
+						return BranchResultMsg{Result: branch.Branch(agent, targetDir)}
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.branchInput, cmd = m.branchInput.Update(msg)
 				return m, cmd
 			}
 		}
@@ -191,6 +233,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.injectInput.SetValue("")
 			m.injectInput.Focus()
 			return m, m.injectInput.Cursor.BlinkCmd()
+		case key.Matches(msg, keys.Branch):
+			if m.selectedIdx < len(m.agents) {
+				m.branchMode = true
+				m.branchInput.SetValue(branch.DefaultTargetDir(m.agents[m.selectedIdx]))
+				m.branchInput.Focus()
+				return m, m.branchInput.Cursor.BlinkCmd()
+			}
 		case key.Matches(msg, keys.Help):
 			m.showHelp = true
 		default:
@@ -234,6 +283,12 @@ func (m Model) View() string {
 			agentName = m.agents[m.selectedIdx].SessionID
 		}
 		footer = footerStyle.Render("Inject to " + agentName + ": " + m.injectInput.View())
+	} else if m.branchMode && m.selectedIdx < len(m.agents) {
+		agentName := m.agents[m.selectedIdx].ProjectName
+		if agentName == "" {
+			agentName = m.agents[m.selectedIdx].SessionID
+		}
+		footer = footerStyle.Render("Branch " + agentName + " to: " + m.branchInput.View())
 	} else {
 		footer = renderFooter(m.yoloEnabled, m.soundEnabled)
 	}
@@ -325,6 +380,7 @@ func (m Model) renderHelp() string {
     n             Deny focused permission
     Y             Approve ALL pending permissions
     i             Inject prompt to selected agent
+    b             Branch session (git worktree + new tmux window)
 
   Settings
     !             Toggle YOLO mode (auto-approve)
