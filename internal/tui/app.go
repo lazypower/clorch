@@ -42,7 +42,8 @@ type Model struct {
 	labelMode  bool
 	labelInput textinput.Model
 
-	version string
+	version   string
+	hooksStale bool
 
 	stateManager *state.Manager
 	rules        *rules.Engine
@@ -58,6 +59,7 @@ func NewModel(
 	notifier *notify.Notifier,
 	navigator *tmux.Navigator,
 	version string,
+	hooksStale bool,
 ) Model {
 	ti := textinput.New()
 	ti.Placeholder = "type message to inject..."
@@ -76,6 +78,7 @@ func NewModel(
 		branchInput:  bi,
 		labelInput:   li,
 		version:      version,
+		hooksStale:   hooksStale,
 		stateManager: stateManager,
 		rules:        rulesEngine,
 		notifier:     notifier,
@@ -360,7 +363,7 @@ func (m Model) View() string {
 		}
 		footer = footerStyle.Render("Branch " + agentName + " to: " + m.branchInput.View())
 	} else {
-		footer = renderFooter(m.yoloEnabled, m.soundEnabled)
+		footer = renderFooter(m.yoloEnabled, m.soundEnabled, m.hooksStale)
 	}
 
 	return strings.Join([]string{

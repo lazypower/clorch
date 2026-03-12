@@ -33,4 +33,5 @@ var (
 	sparkStyle         = lipgloss.NewStyle().Foreground(nordGreen)
 	idleFadeStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#3b4252"))
 	stuckLoopStyle     = lipgloss.NewStyle().Foreground(nordOrange).Bold(true)
+	staleHookStyle     = lipgloss.NewStyle().Foreground(nordYellow)
 )
