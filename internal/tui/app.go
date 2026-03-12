@@ -115,10 +115,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifier.OnTransition(a.SessionID, a.Status, a.ProjectName)
 		}
 
-		// Alert on stuck loops
+		// Alert on stuck loops and compaction thresholds
 		for _, a := range m.agents {
 			if a.StuckLoop {
 				m.notifier.OnTransition(a.SessionID, "STUCK_LOOP", a.ProjectName)
+			}
+			if a.CompactCount == 3 || a.CompactCount == 5 {
+				m.notifier.OnTransition(a.SessionID, "COMPACT_WARN", a.ProjectName)
 			}
 		}
 

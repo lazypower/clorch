@@ -194,6 +194,14 @@ case "$EVENT" in
             '.recent_tools = (((.recent_tools // []) + [{"tool": $tool, "args_hash": $hash, "time": $time}]) | .[-10:])')
         update_null "notification_message"
         update_null "tool_request_summary"
+        # Track files modified by Edit/Write tools
+        if [ "$TOOL" = "Edit" ] || [ "$TOOL" = "Write" ]; then
+            FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // empty')
+            if [ -n "$FILE_PATH" ]; then
+                STATE=$(echo "$STATE" | jq --arg fp "$FILE_PATH" \
+                    '.files_modified = ((.files_modified // []) | if index($fp) then . else . + [$fp] end)')
+            fi
+        fi
         SUMMARY=$(build_summary "$TOOL" "$TOOL_INPUT")
         log_event "$TOOL: $SUMMARY"
         ;;

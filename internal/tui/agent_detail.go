@@ -55,6 +55,29 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 	if a.ToolRequestSummary != nil {
 		meta = append(meta, agentWaitingStyle.Render("  Pending: "+*a.ToolRequestSummary))
 	}
+	if len(a.FilesModified) > 0 {
+		meta = append(meta, "")
+		meta = append(meta, sectionTitleStyle.Render(fmt.Sprintf("FILES (%d)", len(a.FilesModified))))
+		// Show most recent files (last modified = end of list), capped
+		maxFiles := 8
+		start := 0
+		if len(a.FilesModified) > maxFiles {
+			start = len(a.FilesModified) - maxFiles
+		}
+		for _, fp := range a.FilesModified[start:] {
+			// Shorten paths relative to CWD
+			display := fp
+			if a.CWD != "" && len(fp) > len(a.CWD)+1 {
+				if fp[:len(a.CWD)] == a.CWD {
+					display = fp[len(a.CWD)+1:]
+				}
+			}
+			meta = append(meta, agentIdleStyle.Render("  "+display))
+		}
+		if start > 0 {
+			meta = append(meta, agentIdleStyle.Render(fmt.Sprintf("  … %d more", start)))
+		}
+	}
 
 	// Calculate how many timeline lines we can fit
 	// title(1) + meta lines + timeline header(2: blank + "TIMELINE") + hint(1)

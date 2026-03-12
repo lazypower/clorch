@@ -139,6 +139,13 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessio
 		stuckIndicator = " " + stuckLoopStyle.Render("⚠ loop")
 	}
 
+	compactIndicator := ""
+	if a.CompactCount >= 5 {
+		compactIndicator = " " + agentErrorStyle.Render(fmt.Sprintf("⚠ %d compacts", a.CompactCount))
+	} else if a.CompactCount >= 3 {
+		compactIndicator = " " + staleWarnStyle.Render(fmt.Sprintf("⚠ %d compacts", a.CompactCount))
+	}
+
 	subagents := ""
 	if a.SubagentCount > 0 {
 		subagents = fmt.Sprintf(" [%d▸]", a.SubagentCount)
@@ -152,8 +159,8 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessio
 		detailIndent = strings.Repeat(" ", len(treePrefix)+4)
 	}
 
-	line1 := fmt.Sprintf("  %s%s %s  %s%s  %s%s  %s  %s",
-		treePfx, indicator, name, statusText, stuckIndicator, spark, subagents, branch, agoStyled)
+	line1 := fmt.Sprintf("  %s%s %s  %s%s%s  %s%s  %s  %s",
+		treePfx, indicator, name, statusText, stuckIndicator, compactIndicator, spark, subagents, branch, agoStyled)
 	costStr := ""
 	if sessionCost.Cost > 0 {
 		costStr = "  " + costStyle.Render(fmt.Sprintf("$%.2f", sessionCost.Cost))
