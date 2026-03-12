@@ -190,15 +190,11 @@ func (m Model) View() string {
 
 func (m Model) approveAction() tea.Cmd {
 	item := m.findFocusedAction()
-	if item == nil || item.Agent.Status != state.StatusWaitingPermission {
+	if item == nil {
 		return nil
 	}
 	agent := item.Agent
-	stateDir := m.stateManager.StateDir()
 	return func() tea.Msg {
-		if !confirmStillWaiting(stateDir, agent.SessionID) {
-			return nil
-		}
 		err := m.navigator.Approve(agent)
 		return ApprovalResultMsg{SessionID: agent.SessionID, Action: "approved", Err: err}
 	}
@@ -218,16 +214,9 @@ func (m Model) denyAction() tea.Cmd {
 
 func (m Model) approveAllActions() tea.Cmd {
 	var cmds []tea.Cmd
-	stateDir := m.stateManager.StateDir()
 	for _, item := range m.actionQueue {
-		if item.Agent.Status != state.StatusWaitingPermission {
-			continue
-		}
 		agent := item.Agent
 		cmds = append(cmds, func() tea.Msg {
-			if !confirmStillWaiting(stateDir, agent.SessionID) {
-				return nil
-			}
 			err := m.navigator.Approve(agent)
 			return ApprovalResultMsg{SessionID: agent.SessionID, Action: "approved", Err: err}
 		})
@@ -236,18 +225,18 @@ func (m Model) approveAllActions() tea.Cmd {
 }
 
 func (m Model) findFocusedAction() *state.ActionItem {
-	if m.focusedAction == "" {
-		if len(m.actionQueue) > 0 {
-			return &m.actionQueue[0]
-		}
+	if len(m.actionQueue) == 0 {
 		return nil
 	}
-	for i := range m.actionQueue {
-		if m.actionQueue[i].Letter == m.focusedAction {
-			return &m.actionQueue[i]
+	if m.focusedAction != "" {
+		for i := range m.actionQueue {
+			if m.actionQueue[i].Letter == m.focusedAction {
+				return &m.actionQueue[i]
+			}
 		}
 	}
-	return nil
+	// Fall back to first action if focused letter not found or empty
+	return &m.actionQueue[0]
 }
 
 func confirmStillWaiting(stateDir, sessionID string) bool {
