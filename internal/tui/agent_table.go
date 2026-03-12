@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lazypower/clorch/internal/state"
+	"github.com/lazypower/clorch/internal/usage"
 )
 
 var sparkChars = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
@@ -73,33 +74,34 @@ func buildTree(agents []state.AgentState) []treeEntry {
 	return entries
 }
 
-func renderAgentTable(agents []state.AgentState, selectedIdx int, width int) string {
+func renderAgentTable(agents []state.AgentState, selectedIdx int, width int, sessionCosts map[string]usage.SessionCost) string {
 	if len(agents) == 0 {
 		return agentIdleStyle.Render("  No active agents")
 	}
 	tree := buildTree(agents)
 	var lines []string
 	for _, entry := range tree {
-		lines = append(lines, renderAgentRow(entry.agent, entry.idx == selectedIdx, entry.prefix))
+		cost := sessionCosts[entry.agent.SessionID]
+		lines = append(lines, renderAgentRow(entry.agent, entry.idx == selectedIdx, entry.prefix, cost))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func renderAgentRow(a state.AgentState, selected bool, treePrefix string) string {
+func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessionCost usage.SessionCost) string {
 	var indicator, statusText string
 	switch a.Status {
 	case state.StatusWorking:
 		indicator = agentWorkingStyle.Render("●")
-		statusText = agentWorkingStyle.Render("working")
+		statusText = agentWorkingStyle.Render("RUNNING")
 	case state.StatusIdle:
 		indicator = agentIdleStyle.Render("●")
-		statusText = agentIdleStyle.Render("idle")
+		statusText = agentIdleStyle.Render("IDLE")
 	case state.StatusWaitingPermission:
 		indicator = agentWaitingStyle.Render("◉")
 		statusText = agentWaitingStyle.Render("WAITING")
 	case state.StatusWaitingAnswer:
 		indicator = agentWaitingStyle.Render("◉")
-		statusText = agentWaitingStyle.Render("QUESTION")
+		statusText = agentWaitingStyle.Render("BLOCKED")
 	case state.StatusError:
 		indicator = agentErrorStyle.Render("✕")
 		statusText = agentErrorStyle.Render("ERROR")
@@ -152,8 +154,12 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string) string
 
 	line1 := fmt.Sprintf("  %s%s %s  %s%s  %s%s  %s  %s",
 		treePfx, indicator, name, statusText, stuckIndicator, spark, subagents, branch, agoStyled)
-	line2 := fmt.Sprintf("%s%s  %s",
-		detailIndent, agentIdleStyle.Render(a.CWD), agentIdleStyle.Render(fmt.Sprintf("%d tools", a.ToolCount)))
+	costStr := ""
+	if sessionCost.Cost > 0 {
+		costStr = "  " + costStyle.Render(fmt.Sprintf("$%.2f", sessionCost.Cost))
+	}
+	line2 := fmt.Sprintf("%s%s  %s%s",
+		detailIndent, agentIdleStyle.Render(a.CWD), agentIdleStyle.Render(fmt.Sprintf("%d tools", a.ToolCount)), costStr)
 
 	result := line1 + "\n" + line2
 

@@ -18,22 +18,50 @@ func TestParseTranscript(t *testing.T) {
 	os.WriteFile(filepath.Join(projDir, "s1.jsonl"), []byte(transcript), 0644)
 
 	parser := NewParser(dir)
-	tokens, model := parser.Poll()
+	pr := parser.Poll()
 
-	if tokens.InputTokens != 3000 {
-		t.Errorf("input tokens = %d, want 3000", tokens.InputTokens)
+	if pr.Total.InputTokens != 3000 {
+		t.Errorf("input tokens = %d, want 3000", pr.Total.InputTokens)
 	}
-	if tokens.OutputTokens != 500 {
-		t.Errorf("output tokens = %d, want 500", tokens.OutputTokens)
+	if pr.Total.OutputTokens != 500 {
+		t.Errorf("output tokens = %d, want 500", pr.Total.OutputTokens)
 	}
-	if tokens.CacheCreationTokens != 100 {
-		t.Errorf("cache creation = %d, want 100", tokens.CacheCreationTokens)
+	if pr.Total.CacheCreationTokens != 100 {
+		t.Errorf("cache creation = %d, want 100", pr.Total.CacheCreationTokens)
 	}
-	if tokens.CacheReadTokens != 500 {
-		t.Errorf("cache read = %d, want 500", tokens.CacheReadTokens)
+	if pr.Total.CacheReadTokens != 500 {
+		t.Errorf("cache read = %d, want 500", pr.Total.CacheReadTokens)
 	}
-	if model != "claude-opus-4-6-20260301" {
-		t.Errorf("model = %q, want claude-opus-4-6-20260301", model)
+	if pr.Model != "claude-opus-4-6-20260301" {
+		t.Errorf("model = %q, want claude-opus-4-6-20260301", pr.Model)
+	}
+}
+
+func TestParsePerSession(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, "proj1")
+	os.MkdirAll(projDir, 0755)
+
+	t1 := `{"type":"assistant","sessionId":"s1","message":{"role":"assistant","model":"claude-opus-4-6-20260301","content":[],"usage":{"input_tokens":1000,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}` + "\n"
+	t2 := `{"type":"assistant","sessionId":"s2","message":{"role":"assistant","model":"claude-sonnet-4-6-20260301","content":[],"usage":{"input_tokens":500,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}` + "\n"
+
+	os.WriteFile(filepath.Join(projDir, "sess-aaa.jsonl"), []byte(t1), 0644)
+	os.WriteFile(filepath.Join(projDir, "sess-bbb.jsonl"), []byte(t2), 0644)
+
+	parser := NewParser(dir)
+	pr := parser.Poll()
+
+	if len(pr.PerSession) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(pr.PerSession))
+	}
+	if pr.PerSession["sess-aaa"].Tokens.InputTokens != 1000 {
+		t.Errorf("sess-aaa input = %d, want 1000", pr.PerSession["sess-aaa"].Tokens.InputTokens)
+	}
+	if pr.PerSession["sess-bbb"].Tokens.InputTokens != 500 {
+		t.Errorf("sess-bbb input = %d, want 500", pr.PerSession["sess-bbb"].Tokens.InputTokens)
+	}
+	if pr.PerSession["sess-bbb"].Model != "claude-sonnet-4-6-20260301" {
+		t.Errorf("sess-bbb model = %q", pr.PerSession["sess-bbb"].Model)
 	}
 }
 
@@ -49,14 +77,14 @@ func TestParseSkipsNonAssistant(t *testing.T) {
 	os.WriteFile(filepath.Join(projDir, "s1.jsonl"), []byte(transcript), 0644)
 
 	parser := NewParser(dir)
-	tokens, model := parser.Poll()
+	pr := parser.Poll()
 
-	if tokens.InputTokens != 0 || tokens.OutputTokens != 0 {
+	if pr.Total.InputTokens != 0 || pr.Total.OutputTokens != 0 {
 		t.Errorf("expected zero tokens for non-assistant records, got in=%d out=%d",
-			tokens.InputTokens, tokens.OutputTokens)
+			pr.Total.InputTokens, pr.Total.OutputTokens)
 	}
-	if model != "" {
-		t.Errorf("expected empty model, got %q", model)
+	if pr.Model != "" {
+		t.Errorf("expected empty model, got %q", pr.Model)
 	}
 }
 
@@ -70,9 +98,9 @@ func TestParseIncrementalReads(t *testing.T) {
 	os.WriteFile(path, []byte(line1), 0644)
 
 	parser := NewParser(dir)
-	tokens1, _ := parser.Poll()
-	if tokens1.InputTokens != 1000 {
-		t.Fatalf("first poll: input = %d, want 1000", tokens1.InputTokens)
+	pr1 := parser.Poll()
+	if pr1.Total.InputTokens != 1000 {
+		t.Fatalf("first poll: input = %d, want 1000", pr1.Total.InputTokens)
 	}
 
 	// Append more data
@@ -81,10 +109,10 @@ func TestParseIncrementalReads(t *testing.T) {
 	f.WriteString(line2)
 	f.Close()
 
-	tokens2, _ := parser.Poll()
+	pr2 := parser.Poll()
 	// Second poll should only get new data
-	if tokens2.InputTokens != 2000 {
-		t.Errorf("second poll: input = %d, want 2000 (incremental)", tokens2.InputTokens)
+	if pr2.Total.InputTokens != 2000 {
+		t.Errorf("second poll: input = %d, want 2000 (incremental)", pr2.Total.InputTokens)
 	}
 }
 
@@ -100,20 +128,20 @@ func TestParseReset(t *testing.T) {
 	parser.Poll() // first read
 
 	parser.Reset()
-	tokens, _ := parser.Poll() // should re-read everything
-	if tokens.InputTokens != 1000 {
-		t.Errorf("after reset: input = %d, want 1000", tokens.InputTokens)
+	pr := parser.Poll() // should re-read everything
+	if pr.Total.InputTokens != 1000 {
+		t.Errorf("after reset: input = %d, want 1000", pr.Total.InputTokens)
 	}
 }
 
 func TestParseEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	parser := NewParser(dir)
-	tokens, model := parser.Poll()
-	if tokens.InputTokens != 0 {
+	pr := parser.Poll()
+	if pr.Total.InputTokens != 0 {
 		t.Errorf("expected 0 tokens for empty dir")
 	}
-	if model != "" {
+	if pr.Model != "" {
 		t.Errorf("expected empty model for empty dir")
 	}
 }
@@ -127,8 +155,8 @@ func TestParseMalformedJSON(t *testing.T) {
 	os.WriteFile(filepath.Join(projDir, "s1.jsonl"), []byte(transcript), 0644)
 
 	parser := NewParser(dir)
-	tokens, _ := parser.Poll()
-	if tokens.InputTokens != 0 {
-		t.Errorf("expected 0 tokens for malformed json, got %d", tokens.InputTokens)
+	pr := parser.Poll()
+	if pr.Total.InputTokens != 0 {
+		t.Errorf("expected 0 tokens for malformed json, got %d", pr.Total.InputTokens)
 	}
 }

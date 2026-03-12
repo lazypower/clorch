@@ -99,10 +99,15 @@ func (m *Manager) CleanupStale() {
 		files = append(files, stateFile{path: path, agent: agent})
 	}
 
+	removeWithEvents := func(path string) {
+		os.Remove(path)
+		os.Remove(strings.TrimSuffix(path, ".json") + ".events")
+	}
+
 	// Pass 1: Dead process removal
 	for _, f := range files {
 		if f.agent.PID > 0 && !processAlive(f.agent.PID) {
-			os.Remove(f.path)
+			removeWithEvents(f.path)
 		}
 	}
 
@@ -112,7 +117,7 @@ func (m *Manager) CleanupStale() {
 		if f.agent.PID == 0 && f.agent.LastEventTime != "" {
 			if t, err := time.Parse(time.RFC3339, f.agent.LastEventTime); err == nil {
 				if t.Before(cutoff) {
-					os.Remove(f.path)
+					removeWithEvents(f.path)
 				}
 			}
 		}
@@ -126,10 +131,10 @@ func (m *Manager) CleanupStale() {
 		}
 		if existing, ok := pidMap[f.agent.PID]; ok {
 			if f.agent.ToolCount > existing.agent.ToolCount {
-				os.Remove(existing.path)
+				removeWithEvents(existing.path)
 				pidMap[f.agent.PID] = f
 			} else {
-				os.Remove(f.path)
+				removeWithEvents(f.path)
 			}
 		} else {
 			pidMap[f.agent.PID] = f

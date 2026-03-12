@@ -16,6 +16,7 @@ if [ -z "$SESSION_ID" ]; then
 fi
 
 STATE_FILE="$STATE_DIR/${SESSION_ID}.json"
+EVENTS_FILE="$STATE_DIR/${SESSION_ID}.events"
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [ -f "$STATE_FILE" ]; then
@@ -38,6 +39,10 @@ increment() {
 }
 decrement_floor() {
     STATE=$(echo "$STATE" | jq --arg k "$1" '.[$k] = ([(.[$k] // 0) - 1, 0] | max)')
+}
+log_event() {
+    local summary="${1:-}"
+    printf '{"t":"%s","e":"%s","s":"%s"}\n' "$NOW" "$EVENT" "${summary:0:300}" >> "$EVENTS_FILE"
 }
 
 detect_tmux() {
@@ -170,6 +175,7 @@ case "$EVENT" in
                 update "branch_label" "$BRANCH_LABEL"
             fi
         fi
+        log_event "session started"
         ;;
     PreToolUse)
         TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
@@ -188,6 +194,8 @@ case "$EVENT" in
             '.recent_tools = (((.recent_tools // []) + [{"tool": $tool, "args_hash": $hash, "time": $time}]) | .[-10:])')
         update_null "notification_message"
         update_null "tool_request_summary"
+        SUMMARY=$(build_summary "$TOOL" "$TOOL_INPUT")
+        log_event "$TOOL: $SUMMARY"
         ;;
     PostToolUse)
         update "status" "WORKING"
@@ -197,6 +205,8 @@ case "$EVENT" in
     PostToolUseFailure)
         update "status" "ERROR"
         increment "error_count"
+        TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
+        log_event "$TOOL failed"
         ;;
     PermissionRequest)
         TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
@@ -205,29 +215,43 @@ case "$EVENT" in
         update "status" "WAITING_PERMISSION"
         update "last_tool" "$TOOL"
         update "tool_request_summary" "$SUMMARY"
+        log_event "$TOOL: $SUMMARY"
         ;;
     Stop)
         CURRENT_STATUS=$(echo "$STATE" | jq -r '.status // "IDLE"')
         if [ "$CURRENT_STATUS" != "WAITING_ANSWER" ]; then
             update "status" "IDLE"
         fi
+        log_event "stopped"
         ;;
     SessionEnd)
         rm -f "$STATE_FILE"
+        rm -f "$EVENTS_FILE"
         exit 0
         ;;
     UserPromptSubmit)
         update "status" "WORKING"
         update_null "notification_message"
         update_null "tool_request_summary"
+        log_event "user prompt"
         ;;
-    SubagentStart) increment "subagent_count" ;;
-    SubagentStop) decrement_floor "subagent_count" ;;
+    SubagentStart)
+        increment "subagent_count"
+        log_event "subagent spawned"
+        ;;
+    SubagentStop)
+        decrement_floor "subagent_count"
+        log_event "subagent finished"
+        ;;
     PreCompact)
         increment "compact_count"
         update "last_compact_time" "$NOW"
+        log_event "context compacted"
         ;;
-    TaskCompleted) increment "task_completed_count" ;;
+    TaskCompleted)
+        increment "task_completed_count"
+        log_event "task completed"
+        ;;
     TeammateIdle) ;; # Only update event fields (already done above)
 esac
 

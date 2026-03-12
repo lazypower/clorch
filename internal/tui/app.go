@@ -330,17 +330,34 @@ func (m Model) View() string {
 	leftWidth := m.width * 60 / 100
 	rightWidth := m.width - leftWidth - 3
 
-	leftPanel := sectionTitleStyle.Render("AGENTS") + "\n" + renderAgentTable(m.agents, m.selectedIdx, leftWidth)
+	sessionCosts := m.usageSummary.PerSession
+	if sessionCosts == nil {
+		sessionCosts = make(map[string]usage.SessionCost)
+	}
+	leftPanel := sectionTitleStyle.Render("AGENTS") + "\n" + renderAgentTable(m.agents, m.selectedIdx, leftWidth, sessionCosts)
 
 	rightPanel := sectionTitleStyle.Render("ACTIONS") + "\n" + renderActionQueue(m.actionQueue, m.focusedAction)
 	if m.showDetail && m.selectedIdx < len(m.agents) {
-		rightPanel = renderAgentDetail(m.agents[m.selectedIdx])
+		agent := m.agents[m.selectedIdx]
+		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, 200)
+		// Panel height: total height minus header(1), two separators(2), footer(1)
+		panelHeight := m.height - 4
+		if panelHeight < 10 {
+			panelHeight = 10
+		}
+		rightPanel = renderAgentDetail(agent, events, sessionCosts[agent.SessionID], panelHeight)
+	}
+
+	// Body height: total height minus header(1) + top separator(1) + bottom separator(1) + footer(1)
+	bodyHeight := m.height - 4
+	if bodyHeight < 1 {
+		bodyHeight = 1
 	}
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(leftWidth).Render(leftPanel),
-		lipgloss.NewStyle().Foreground(nordDimmed).Render(" │ "),
-		lipgloss.NewStyle().Width(rightWidth).Render(rightPanel),
+		lipgloss.NewStyle().Width(leftWidth).Height(bodyHeight).Render(leftPanel),
+		lipgloss.NewStyle().Foreground(nordDimmed).Height(bodyHeight).Render(" │ "),
+		lipgloss.NewStyle().Width(rightWidth).Height(bodyHeight).Render(rightPanel),
 	)
 
 	var footer string

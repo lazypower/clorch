@@ -62,8 +62,8 @@ func (t *Tracker) loop(ctx context.Context) {
 }
 
 func (t *Tracker) poll() {
-	tokens, model := t.parser.Poll()
-	cost := CalculateCost(tokens, model)
+	pr := t.parser.Poll()
+	cost := CalculateCost(pr.Total, pr.Model)
 	now := time.Now()
 
 	t.history = append(t.history, usageSnapshot{time: now, cost: cost})
@@ -77,12 +77,21 @@ func (t *Tracker) poll() {
 	}
 	t.history = t.history[trimIdx:]
 
+	perSession := make(map[string]SessionCost)
+	for sid, st := range pr.PerSession {
+		perSession[sid] = SessionCost{
+			Tokens: st.Tokens,
+			Cost:   CalculateCost(st.Tokens, st.Model),
+		}
+	}
+
 	if t.program != nil {
 		t.program.Send(UsageUpdateMsg{
 			Summary: UsageSummary{
-				Tokens:   tokens,
-				Cost:     cost,
-				BurnRate: t.burnRate(),
+				Tokens:     pr.Total,
+				Cost:       cost,
+				BurnRate:   t.burnRate(),
+				PerSession: perSession,
 			},
 		})
 	}

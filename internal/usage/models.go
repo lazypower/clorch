@@ -13,16 +13,16 @@ type ModelPrice struct {
 	Output float64
 }
 
-type SessionUsage struct {
-	FilePath   string
-	ByteOffset int64
-	Tokens     TokenUsage
-	Model      string
+// SessionCost holds computed cost for a single session.
+type SessionCost struct {
+	Tokens TokenUsage
+	Cost   float64
 }
 
 // UsageSummary is the aggregate sent to the TUI.
 type UsageSummary struct {
-	Tokens   TokenUsage
-	Cost     float64
-	BurnRate float64
+	Tokens     TokenUsage
+	Cost       float64
+	BurnRate   float64
+	PerSession map[string]SessionCost
 }

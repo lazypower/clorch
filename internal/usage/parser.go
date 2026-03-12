@@ -35,21 +35,39 @@ type transcriptRecord struct {
 	} `json:"message"`
 }
 
-func (p *Parser) Poll() (TokenUsage, string) {
-	var total TokenUsage
-	var lastModel string
+// SessionTokens holds per-session token usage and model.
+type SessionTokens struct {
+	Tokens TokenUsage
+	Model  string
+}
+
+// PollResult contains both aggregate and per-session usage data.
+type PollResult struct {
+	Total      TokenUsage
+	Model      string
+	PerSession map[string]SessionTokens
+}
+
+func (p *Parser) Poll() PollResult {
+	result := PollResult{PerSession: make(map[string]SessionTokens)}
 
 	for _, path := range p.discoverFiles() {
 		tokens, model := p.parseFile(path)
-		total.InputTokens += tokens.InputTokens
-		total.OutputTokens += tokens.OutputTokens
-		total.CacheCreationTokens += tokens.CacheCreationTokens
-		total.CacheReadTokens += tokens.CacheReadTokens
+		result.Total.InputTokens += tokens.InputTokens
+		result.Total.OutputTokens += tokens.OutputTokens
+		result.Total.CacheCreationTokens += tokens.CacheCreationTokens
+		result.Total.CacheReadTokens += tokens.CacheReadTokens
 		if model != "" {
-			lastModel = model
+			result.Model = model
+		}
+
+		base := filepath.Base(path)
+		sessionID := strings.TrimSuffix(base, ".jsonl")
+		if sessionID != base {
+			result.PerSession[sessionID] = SessionTokens{Tokens: tokens, Model: model}
 		}
 	}
-	return total, lastModel
+	return result
 }
 
 func (p *Parser) Reset() {
