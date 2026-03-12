@@ -47,9 +47,12 @@ TMPFILE=$(mktemp "$STATE_DIR/.tmp.XXXXXX")
 echo "$STATE" | jq '.' > "$TMPFILE"
 mv "$TMPFILE" "$STATE_FILE"
 
-printf '\a'
+# Only fire bell/notification for events that need human attention
+if [ -n "$NEW_STATUS" ]; then
+    printf '\a' 2>/dev/null || true
 
-if command -v osascript &>/dev/null; then
-    ESCAPED_MSG=$(echo "$MESSAGE" | sed 's/"/\\"/g' | head -c 200)
-    osascript -e "display notification \"$ESCAPED_MSG\" with title \"clorch — $PROJECT\"" 2>/dev/null &
+    if command -v osascript &>/dev/null; then
+        ESCAPED_MSG=$(echo "$MESSAGE" | sed 's/"/\\"/g' | head -c 200)
+        osascript -e "display notification \"$ESCAPED_MSG\" with title \"clorch — $PROJECT\"" 2>/dev/null &
+    fi
 fi
