@@ -35,6 +35,31 @@ func TestParseTranscript(t *testing.T) {
 	if pr.Model != "claude-opus-4-6-20260301" {
 		t.Errorf("model = %q, want claude-opus-4-6-20260301", pr.Model)
 	}
+	// LastInput is per-session (overwrites per message), check via PerSession
+	if pr.PerSession["s1"].Tokens.LastInput != 2100 {
+		t.Errorf("LastInput = %d, want 2100 (last message's input+cache_create+cache_read)", pr.PerSession["s1"].Tokens.LastInput)
+	}
+}
+
+func TestParseLastInputOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, "proj1")
+	os.MkdirAll(projDir, 0755)
+
+	// Two messages: LastInput should be the second one (overwrite, not accumulate)
+	transcript := `{"type":"assistant","sessionId":"s1","message":{"role":"assistant","model":"claude-opus-4-6-20260301","content":[],"usage":{"input_tokens":1000,"output_tokens":100,"cache_creation_input_tokens":500,"cache_read_input_tokens":200}}}
+{"type":"assistant","sessionId":"s1","message":{"role":"assistant","model":"claude-opus-4-6-20260301","content":[],"usage":{"input_tokens":3000,"output_tokens":200,"cache_creation_input_tokens":100,"cache_read_input_tokens":50}}}
+`
+	os.WriteFile(filepath.Join(projDir, "s1.jsonl"), []byte(transcript), 0644)
+
+	parser := NewParser(dir)
+	pr := parser.Poll()
+
+	// LastInput = last message: 3000 + 100 + 50 = 3150
+	want := int64(3150)
+	if pr.PerSession["s1"].Tokens.LastInput != want {
+		t.Errorf("LastInput = %d, want %d", pr.PerSession["s1"].Tokens.LastInput, want)
+	}
 }
 
 func TestParsePerSession(t *testing.T) {

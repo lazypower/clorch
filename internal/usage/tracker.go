@@ -82,6 +82,7 @@ func (t *Tracker) poll() {
 		perSession[sid] = SessionCost{
 			Tokens: st.Tokens,
 			Cost:   CalculateCost(st.Tokens, st.Model),
+			Model:  st.Model,
 		}
 	}
 

@@ -132,6 +132,8 @@ func (p *Parser) parseFile(path string) (TokenUsage, string) {
 		tokens.OutputTokens += rec.Message.Usage.OutputTokens
 		tokens.CacheCreationTokens += rec.Message.Usage.CacheCreationInputTokens
 		tokens.CacheReadTokens += rec.Message.Usage.CacheReadInputTokens
+		// LastInput overwrites per message — represents the most recent API call's context fill
+		tokens.LastInput = rec.Message.Usage.InputTokens + rec.Message.Usage.CacheCreationInputTokens + rec.Message.Usage.CacheReadInputTokens
 		if rec.Message.Model != "" {
 			model = rec.Message.Model
 		}

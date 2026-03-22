@@ -42,6 +42,9 @@ type Model struct {
 	labelMode  bool
 	labelInput textinput.Model
 
+	renameMode  bool
+	renameInput textinput.Model
+
 	version   string
 	hooksStale bool
 
@@ -73,10 +76,15 @@ func NewModel(
 	li.Placeholder = "label (optional, Enter to skip)..."
 	li.CharLimit = 100
 
+	ri := textinput.New()
+	ri.Placeholder = "new window name..."
+	ri.CharLimit = 100
+
 	return Model{
 		injectInput:  ti,
 		branchInput:  bi,
 		labelInput:   li,
+		renameInput:  ri,
 		version:      version,
 		hooksStale:   hooksStale,
 		stateManager: stateManager,
@@ -258,6 +266,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		}
+		if m.renameMode {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.renameMode = false
+				m.renameInput.SetValue("")
+				m.renameInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				newName := m.renameInput.Value()
+				m.renameMode = false
+				m.renameInput.SetValue("")
+				m.renameInput.Blur()
+				if newName != "" && m.selectedIdx < len(m.agents) {
+					agent := m.agents[m.selectedIdx]
+					if agent.TmuxSession != "" && agent.TmuxWindowIndex != "" {
+						return m, func() tea.Msg {
+							tmux.RenameWindow(agent.TmuxSession, agent.TmuxWindowIndex, newName)
+							return nil
+						}
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.renameInput, cmd = m.renameInput.Update(msg)
+				return m, cmd
+			}
+		}
 		if m.showHelp {
 			m.showHelp = false
 			return m, nil
@@ -309,6 +345,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.labelInput.SetValue("")
 				m.labelInput.Focus()
 				return m, m.labelInput.Cursor.BlinkCmd()
+			}
+		case key.Matches(msg, keys.Rename):
+			if m.selectedIdx < len(m.agents) {
+				agent := m.agents[m.selectedIdx]
+				m.renameMode = true
+				m.renameInput.SetValue(agent.TmuxWindow)
+				m.renameInput.Focus()
+				return m, m.renameInput.Cursor.BlinkCmd()
 			}
 		case key.Matches(msg, keys.Help):
 			m.showHelp = true
@@ -376,6 +420,12 @@ func (m Model) View() string {
 			agentName = m.agents[m.selectedIdx].SessionID
 		}
 		footer = footerStyle.Render("Label " + agentName + ": " + m.labelInput.View())
+	} else if m.renameMode && m.selectedIdx < len(m.agents) {
+		agentName := m.agents[m.selectedIdx].ProjectName
+		if agentName == "" {
+			agentName = m.agents[m.selectedIdx].SessionID
+		}
+		footer = footerStyle.Render("Rename " + agentName + " window: " + m.renameInput.View())
 	} else if m.branchMode && m.selectedIdx < len(m.agents) {
 		agentName := m.agents[m.selectedIdx].ProjectName
 		if agentName == "" {
@@ -475,6 +525,7 @@ func (m Model) renderHelp() string {
     i             Inject prompt to selected agent
     b             Branch session (git worktree + new tmux window)
     l             Set/change label for selected agent
+    W             Rename tmux window for selected agent
 
   Settings
     !             Toggle YOLO mode (auto-approve)

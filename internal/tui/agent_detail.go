@@ -28,7 +28,7 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 	meta = append(meta, "")
 	meta = append(meta, fmt.Sprintf("  Tools:     %d", a.ToolCount))
 	meta = append(meta, fmt.Sprintf("  Errors:    %d", a.ErrorCount))
-	meta = append(meta, fmt.Sprintf("  Subagents: %d", a.SubagentCount))
+	meta = append(meta, fmt.Sprintf("  Subagents: %d (%d running)", a.SubagentCount, a.RunningSubagentCount()))
 	meta = append(meta, fmt.Sprintf("  Compacts:  %d", a.CompactCount))
 	meta = append(meta, fmt.Sprintf("  Tasks:     %d", a.TaskCompletedCount))
 	if sessionCost.Cost > 0 {
@@ -38,6 +38,16 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 		if tok.CacheReadTokens > 0 {
 			meta = append(meta, agentIdleStyle.Render(fmt.Sprintf("  Cached:    %dk tokens", tok.CacheReadTokens/1000)))
 		}
+	}
+	if sessionCost.Model != "" && sessionCost.Tokens.LastInput > 0 {
+		cap := usage.ModelContextCapacity(sessionCost.Model)
+		pct := usage.ContextWindowPct(sessionCost.Tokens.LastInput, cap)
+		gauge := usage.RenderContextGauge(pct, 16)
+		compactSuffix := ""
+		if a.CompactCount > 0 {
+			compactSuffix = fmt.Sprintf(" (%dc)", a.CompactCount)
+		}
+		meta = append(meta, fmt.Sprintf("  Context:  %s%s", gauge, compactSuffix))
 	}
 	meta = append(meta, "")
 	if a.GitBranch != "" {
@@ -76,6 +86,18 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 		}
 		if start > 0 {
 			meta = append(meta, agentIdleStyle.Render(fmt.Sprintf("  … %d more", start)))
+		}
+	}
+
+	if len(a.Subagents) > 0 {
+		meta = append(meta, "")
+		meta = append(meta, sectionTitleStyle.Render(fmt.Sprintf("SUBAGENTS (%d)", len(a.Subagents))))
+		for _, sub := range a.Subagents {
+			statusIcon := agentWorkingStyle.Render("●")
+			if sub.Status != "running" {
+				statusIcon = agentIdleStyle.Render("○")
+			}
+			meta = append(meta, fmt.Sprintf("  %s %s  %s", statusIcon, sub.AgentType, agentIdleStyle.Render(sub.AgentID[:minInt(12, len(sub.AgentID))])))
 		}
 	}
 

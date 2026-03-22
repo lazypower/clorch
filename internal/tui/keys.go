@@ -15,6 +15,7 @@ type keyMap struct {
 	Inject     key.Binding
 	Branch     key.Binding
 	Label      key.Binding
+	Rename     key.Binding
 	Help       key.Binding
 	Quit       key.Binding
 }
@@ -32,6 +33,7 @@ var keys = keyMap{
 	Inject:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inject prompt")),
 	Branch:     key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch session")),
 	Label:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "label agent")),
+	Rename:     key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "rename tmux window")),
 	Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }

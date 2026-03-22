@@ -39,13 +39,33 @@ type AgentState struct {
 	TmuxWindowIndex     string   `json:"tmux_window_index"`
 	TermProgram         string           `json:"term_program"`
 	RecentTools         []RecentToolCall `json:"recent_tools"`
-	FilesModified       []string         `json:"files_modified,omitempty"`
-	BranchedFrom        string           `json:"branched_from,omitempty"`
-	BranchLabel         string           `json:"branch_label,omitempty"`
+	FilesModified       []string              `json:"files_modified,omitempty"`
+	BranchedFrom        string                `json:"branched_from,omitempty"`
+	BranchLabel         string                `json:"branch_label,omitempty"`
+	Subagents           map[string]SubAgent   `json:"subagents,omitempty"`
 
 	DisplayName   string        `json:"-"`
 	StaleDuration time.Duration `json:"-"`
 	StuckLoop     bool          `json:"-"`
+}
+
+// SubAgent tracks an individual subagent spawned by this session.
+type SubAgent struct {
+	AgentID   string `json:"agent_id"`
+	AgentType string `json:"agent_type"`
+	Status    string `json:"status"`
+	StartedAt string `json:"started_at"`
+}
+
+// RunningSubagentCount returns the number of subagents currently running.
+func (a AgentState) RunningSubagentCount() int {
+	count := 0
+	for _, sub := range a.Subagents {
+		if sub.Status == "running" {
+			count++
+		}
+	}
+	return count
 }
 
 // RecentToolCall tracks a recent tool invocation for stuck-loop detection.

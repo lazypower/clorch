@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/lazypower/clorch/internal/state"
 	"github.com/lazypower/clorch/internal/usage"
 )
@@ -74,20 +75,48 @@ func buildTree(agents []state.AgentState) []treeEntry {
 	return entries
 }
 
+// visibleColumns determines which optional columns to show based on available width.
+// Core columns (indicator, name, status, stale) always shown (~40 chars).
+func visibleColumns(width int) map[string]bool {
+	cols := map[string]bool{}
+	remaining := width - 40 // core columns
+	// Add columns by priority
+	type col struct {
+		name string
+		w    int
+	}
+	priority := []col{
+		{"sparkline", 12},
+		{"branch", 12},
+		{"context", 14},
+		{"cost", 8},
+		{"tools", 6},
+		{"subagent", 5},
+	}
+	for _, c := range priority {
+		if remaining >= c.w {
+			cols[c.name] = true
+			remaining -= c.w
+		}
+	}
+	return cols
+}
+
 func renderAgentTable(agents []state.AgentState, selectedIdx int, width int, sessionCosts map[string]usage.SessionCost) string {
 	if len(agents) == 0 {
 		return agentIdleStyle.Render("  No active agents")
 	}
 	tree := buildTree(agents)
+	cols := visibleColumns(width)
 	var lines []string
 	for _, entry := range tree {
 		cost := sessionCosts[entry.agent.SessionID]
-		lines = append(lines, renderAgentRow(entry.agent, entry.idx == selectedIdx, entry.prefix, cost))
+		lines = append(lines, renderAgentRow(entry.agent, entry.idx == selectedIdx, entry.prefix, cost, cols))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessionCost usage.SessionCost) string {
+func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessionCost usage.SessionCost, cols map[string]bool) string {
 	var indicator, statusText string
 	switch a.Status {
 	case state.StatusWorking:
@@ -119,7 +148,10 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessio
 		name = a.TmuxWindow
 	}
 
-	spark := renderSparkline(a.ActivityHistory)
+	spark := ""
+	if cols["sparkline"] {
+		spark = renderSparkline(a.ActivityHistory)
+	}
 
 	ago := formatDuration(a.StaleDuration)
 	agoStyled := agentIdleStyle.Render(ago + " ago")
@@ -130,7 +162,7 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessio
 	}
 
 	branch := ""
-	if a.GitBranch != "" {
+	if cols["branch"] && a.GitBranch != "" {
 		branch = agentIdleStyle.Render(a.GitBranch)
 	}
 
@@ -147,26 +179,46 @@ func renderAgentRow(a state.AgentState, selected bool, treePrefix string, sessio
 	}
 
 	subagents := ""
-	if a.SubagentCount > 0 {
-		subagents = fmt.Sprintf(" [%d▸]", a.SubagentCount)
+	if cols["subagent"] {
+		runningCount := a.RunningSubagentCount()
+		if runningCount > 0 {
+			subagents = fmt.Sprintf(" [%d▸]", runningCount)
+		} else if a.SubagentCount > 0 {
+			subagents = fmt.Sprintf(" [%d▸]", a.SubagentCount)
+		}
+	}
+
+	contextGauge := ""
+	if cols["context"] && sessionCost.Model != "" && sessionCost.Tokens.LastInput > 0 {
+		cap := usage.ModelContextCapacity(sessionCost.Model)
+		pct := usage.ContextWindowPct(sessionCost.Tokens.LastInput, cap)
+		contextGauge = " " + usage.RenderContextGauge(pct, 8)
+		if a.CompactCount > 0 {
+			color := usage.ContextPctColor(pct)
+			contextGauge += lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf(" (%dc)", a.CompactCount))
+		}
 	}
 
 	treePfx := ""
 	detailIndent := "    "
 	if treePrefix != "" {
 		treePfx = agentIdleStyle.Render(treePrefix)
-		// Align detail line under the agent name
 		detailIndent = strings.Repeat(" ", len(treePrefix)+4)
 	}
 
-	line1 := fmt.Sprintf("  %s%s %s  %s%s%s  %s%s  %s  %s",
-		treePfx, indicator, name, statusText, stuckIndicator, compactIndicator, spark, subagents, branch, agoStyled)
+	line1 := fmt.Sprintf("  %s%s %s  %s%s%s  %s%s%s  %s  %s",
+		treePfx, indicator, name, statusText, stuckIndicator, compactIndicator, spark, subagents, contextGauge, branch, agoStyled)
+
 	costStr := ""
-	if sessionCost.Cost > 0 {
+	if cols["cost"] && sessionCost.Cost > 0 {
 		costStr = "  " + costStyle.Render(fmt.Sprintf("$%.2f", sessionCost.Cost))
 	}
+	toolStr := ""
+	if cols["tools"] {
+		toolStr = agentIdleStyle.Render(fmt.Sprintf("%d tools", a.ToolCount))
+	}
 	line2 := fmt.Sprintf("%s%s  %s%s",
-		detailIndent, agentIdleStyle.Render(a.CWD), agentIdleStyle.Render(fmt.Sprintf("%d tools", a.ToolCount)), costStr)
+		detailIndent, agentIdleStyle.Render(a.CWD), toolStr, costStr)
 
 	result := line1 + "\n" + line2
 

@@ -245,10 +245,28 @@ case "$EVENT" in
         ;;
     SubagentStart)
         increment "subagent_count"
-        log_event "subagent spawned"
+        AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
+        AGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // empty')
+        if [ -n "$AGENT_ID" ]; then
+            # Sanitize: only allow alphanumeric, dash, underscore
+            SAFE_ID=$(echo "$AGENT_ID" | tr -cd 'a-zA-Z0-9_-')
+            if [ -n "$SAFE_ID" ]; then
+                STATE=$(echo "$STATE" | jq --arg id "$SAFE_ID" --arg type "$AGENT_TYPE" --arg time "$NOW" \
+                    '.subagents = ((.subagents // {}) | .[$id] = {"agent_id": $id, "agent_type": $type, "status": "running", "started_at": $time})')
+            fi
+        fi
+        log_event "subagent spawned: $AGENT_TYPE"
         ;;
     SubagentStop)
         decrement_floor "subagent_count"
+        AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
+        if [ -n "$AGENT_ID" ]; then
+            SAFE_ID=$(echo "$AGENT_ID" | tr -cd 'a-zA-Z0-9_-')
+            if [ -n "$SAFE_ID" ]; then
+                STATE=$(echo "$STATE" | jq --arg id "$SAFE_ID" \
+                    '.subagents = ((.subagents // {}) | .[$id].status = "completed")')
+            fi
+        fi
         log_event "subagent finished"
         ;;
     PreCompact)

@@ -6,6 +6,7 @@ type TokenUsage struct {
 	OutputTokens        int64
 	CacheCreationTokens int64
 	CacheReadTokens     int64
+	LastInput           int64 // most recent API call's total input (overwrites, not accumulates)
 }
 
 type ModelPrice struct {
@@ -17,6 +18,7 @@ type ModelPrice struct {
 type SessionCost struct {
 	Tokens TokenUsage
 	Cost   float64
+	Model  string
 }
 
 // UsageSummary is the aggregate sent to the TUI.

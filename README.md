@@ -56,6 +56,10 @@ No API calls. No terminal scraping. No process injection. Claude Code's native h
 
 ## Features
 
+### Context Window Gauge
+
+Real-time visualization of how full each agent's context window is. An 8-character bar gauge in the agent list and a 16-character gauge in the detail panel, color-coded green/yellow/red at 60%/80% thresholds. Shows compact count alongside the gauge so you can see context pressure at a glance. Opus gets 1M capacity, Sonnet/Haiku get 200K.
+
 ### Branch Lineage Tree
 
 Spawn worktree branches with `b` and clorch renders the parent→child relationship as a tree in the agent list. Label any agent with `l` for quick identification.
@@ -64,13 +68,25 @@ Spawn worktree branches with `b` and clorch renders the parent→child relations
 
 Press `d` to open the detail panel. Every tool call, permission request, prompt, subagent spawn, and compaction is logged with timestamps. Newest events at the top, constrained to fit the viewport.
 
+### Subagent Hierarchy
+
+Individual subagents are tracked with their type, status, and ID — not just a counter. The agent list shows running subagent count, and the detail panel lists each subagent with a status indicator. Hook scripts sanitize agent IDs and maintain a full subagent map.
+
 ### Per-Session Cost
 
 Each agent shows its running cost computed from Claude Code's JSONL transcripts. Input/output/cached token breakdowns in the detail panel. Aggregate burn rate in the header.
 
+### Responsive Columns
+
+The agent table adapts to terminal width. Core columns (indicator, name, status, stale duration) always show. Optional columns — sparkline, branch, context gauge, cost, tool count, subagent indicator — appear progressively as width allows.
+
 ### Compact Alerting
 
 Agents approaching context limits get visual warnings — yellow at 3 compactions, red at 5. Helps you notice when an agent is churning through context before it falls off a cliff.
+
+### Tmux Window Rename
+
+Press `W` to rename the tmux window for the selected agent. Pre-filled with the current window name. All tmux operations validate targets against injection characters.
 
 ### Artifact Awareness
 
@@ -95,6 +111,7 @@ When you upgrade clorch, the footer warns you if installed hooks are from an old
 | `l` | Label selected agent |
 | `b` | Branch selected agent (worktree) |
 | `i` | Inject prompt into agent |
+| `W` | Rename tmux window |
 | `?` | Help |
 | `q` | Quit |
 
@@ -195,7 +212,7 @@ Displayed in the TUI header. No API keys needed — it reads the local transcrip
 
 ## Prior Art
 
-Rewrite of [androsovm/clorch](https://github.com/androsovm/clorch) (Python/Textual). Same state protocol, same hook scripts, same rules format. Drop-in replacement — no hook reinstall needed if you're migrating.
+Rewrite of [androsovm/clorch](https://github.com/androsovm/clorch) (Python/Textual). Same state protocol, same hook scripts, same rules format. Drop-in replacement — no hook reinstall needed if you're migrating. As of v0.7.0, includes ported features from upstream through v0.4.0 (context gauge, subagent hierarchy, responsive columns, tmux safety) adapted to Go/BubbleTea architecture.
 
 ## License
 
