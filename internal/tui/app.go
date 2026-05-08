@@ -39,6 +39,11 @@ type Model struct {
 	branchPath    string
 	branchInput   textinput.Model
 
+	spawnMode    bool
+	spawnStep    int // 0 = path, 1 = label
+	spawnPath    string
+	spawnInput   textinput.Model
+
 	labelMode  bool
 	labelInput textinput.Model
 
@@ -76,6 +81,10 @@ func NewModel(
 	li.Placeholder = "label (optional, Enter to skip)..."
 	li.CharLimit = 100
 
+	si := textinput.New()
+	si.Placeholder = "path for spawn working directory..."
+	si.CharLimit = 500
+
 	ri := textinput.New()
 	ri.Placeholder = "new window name..."
 	ri.CharLimit = 100
@@ -83,6 +92,7 @@ func NewModel(
 	return Model{
 		injectInput:  ti,
 		branchInput:  bi,
+		spawnInput:   si,
 		labelInput:   li,
 		renameInput:  ri,
 		version:      version,
@@ -104,6 +114,10 @@ type ApprovalResultMsg struct {
 
 type BranchResultMsg struct {
 	Result branch.Result
+}
+
+type SpawnResultMsg struct {
+	Result branch.SpawnResult
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -166,7 +180,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BranchResultMsg:
 		// Branch completed — new session will appear via hook discovery
-		// Could log result or show error
+
+	case SpawnResultMsg:
+		// Spawn completed — new session will appear via hook discovery
 
 	case tea.KeyMsg:
 		if m.injectMode {
@@ -237,6 +253,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				var cmd tea.Cmd
 				m.branchInput, cmd = m.branchInput.Update(msg)
+				return m, cmd
+			}
+		}
+		if m.spawnMode {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.spawnMode = false
+				m.spawnStep = 0
+				m.spawnInput.SetValue("")
+				m.spawnInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				if m.spawnStep == 0 {
+					m.spawnPath = m.spawnInput.Value()
+					if m.spawnPath == "" {
+						m.spawnMode = false
+						return m, nil
+					}
+					m.spawnStep = 1
+					m.spawnInput.SetValue("")
+					m.spawnInput.Placeholder = "label (optional, Enter to skip)..."
+					return m, nil
+				}
+				label := m.spawnInput.Value()
+				m.spawnMode = false
+				m.spawnStep = 0
+				m.spawnInput.SetValue("")
+				m.spawnInput.Placeholder = "path for spawn working directory..."
+				m.spawnInput.Blur()
+				if m.selectedIdx < len(m.agents) {
+					agent := m.agents[m.selectedIdx]
+					targetDir := m.spawnPath
+					return m, func() tea.Msg {
+						return SpawnResultMsg{Result: branch.Spawn(branch.SpawnOptions{
+							SourceDir:   agent.CWD,
+							TargetDir:   targetDir,
+							Label:       label,
+							TmuxSession: agent.TmuxSession,
+							SessionID:   agent.SessionID,
+						})}
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.spawnInput, cmd = m.spawnInput.Update(msg)
 				return m, cmd
 			}
 		}
@@ -339,6 +401,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.branchInput.Focus()
 				return m, m.branchInput.Cursor.BlinkCmd()
 			}
+		case key.Matches(msg, keys.Spawn):
+			if m.selectedIdx < len(m.agents) {
+				m.spawnMode = true
+				m.spawnInput.SetValue(branch.DefaultTargetDir(m.agents[m.selectedIdx]))
+				m.spawnInput.Focus()
+				return m, m.spawnInput.Cursor.BlinkCmd()
+			}
 		case key.Matches(msg, keys.Label):
 			if m.selectedIdx < len(m.agents) {
 				m.labelMode = true
@@ -426,6 +495,12 @@ func (m Model) View() string {
 			agentName = m.agents[m.selectedIdx].SessionID
 		}
 		footer = footerStyle.Render("Rename " + agentName + " window: " + m.renameInput.View())
+	} else if m.spawnMode && m.selectedIdx < len(m.agents) {
+		agentName := m.agents[m.selectedIdx].ProjectName
+		if agentName == "" {
+			agentName = m.agents[m.selectedIdx].SessionID
+		}
+		footer = footerStyle.Render("Spawn " + agentName + " to: " + m.spawnInput.View())
 	} else if m.branchMode && m.selectedIdx < len(m.agents) {
 		agentName := m.agents[m.selectedIdx].ProjectName
 		if agentName == "" {
@@ -524,6 +599,7 @@ func (m Model) renderHelp() string {
     Y             Approve ALL pending permissions
     i             Inject prompt to selected agent
     b             Branch session (git worktree + new tmux window)
+    B             Spawn worktree + 2-pane window (claude + shell)
     l             Set/change label for selected agent
     W             Rename tmux window for selected agent
 

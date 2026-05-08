@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lazypower/clorch/internal/state"
+	"github.com/lazypower/clorch/internal/tmux"
 )
 
 // Metadata written to the branch directory so the hook script can pick it up.
@@ -182,6 +183,79 @@ func spawnInTmux(tmuxSession, workDir string) error {
 		"claude")
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// SpawnOptions configures how Spawn creates the work context.
+type SpawnOptions struct {
+	SourceDir   string // directory to branch from
+	TargetDir   string // where to create worktree/copy (empty = auto)
+	Label       string // display label for the session
+	TmuxSession string // tmux session to create window in
+	SessionID   string // parent session ID (empty for standalone)
+}
+
+// SpawnResult holds the outcome of a Spawn operation.
+type SpawnResult struct {
+	WorkDir    string
+	WindowName string
+	Err        error
+}
+
+// Spawn creates a git worktree (or dir copy) and opens a tmux window with
+// 2 panes: claude on top, shell on bottom. Both panes cd'd to the worktree.
+func Spawn(opts SpawnOptions) SpawnResult {
+	if opts.TmuxSession == "" {
+		return SpawnResult{Err: fmt.Errorf("no tmux session specified")}
+	}
+	if opts.SourceDir == "" {
+		return SpawnResult{Err: fmt.Errorf("no source directory specified")}
+	}
+	if isDangerousDir(opts.SourceDir) {
+		return SpawnResult{Err: fmt.Errorf("refusing to branch from %s — too broad, use a project directory", opts.SourceDir)}
+	}
+
+	// Default target directory
+	if opts.TargetDir == "" {
+		opts.TargetDir = DefaultTargetDirFromCWD(opts.SourceDir)
+	}
+
+	// Ensure parent exists
+	if err := os.MkdirAll(filepath.Dir(opts.TargetDir), 0755); err != nil {
+		return SpawnResult{Err: fmt.Errorf("create parent dir: %w", err)}
+	}
+
+	// Create worktree or copy
+	if isGitRepo(opts.SourceDir) {
+		if err := createWorktree(opts.SourceDir, opts.TargetDir); err != nil {
+			return SpawnResult{Err: fmt.Errorf("git worktree: %w", err)}
+		}
+	} else {
+		if err := safeCopyDir(opts.SourceDir, opts.TargetDir); err != nil {
+			return SpawnResult{Err: fmt.Errorf("copy dir: %w", err)}
+		}
+	}
+
+	// Write metadata for hook pickup
+	meta := Metadata{BranchedFrom: opts.SessionID, Label: opts.Label}
+	if err := writeMetadata(opts.TargetDir, meta); err != nil {
+		return SpawnResult{Err: fmt.Errorf("write metadata: %w", err)}
+	}
+
+	// Pick a window name
+	existing, _ := tmux.ListWindowNames(opts.TmuxSession)
+	windowName := tmux.PickWindowName(existing)
+
+	// Spawn 2-pane window
+	if err := tmux.SpawnWindow(opts.TmuxSession, opts.TargetDir, windowName, "claude"); err != nil {
+		return SpawnResult{Err: fmt.Errorf("tmux spawn: %w", err)}
+	}
+
+	return SpawnResult{WorkDir: opts.TargetDir, WindowName: windowName}
+}
+
+// DefaultTargetDirFromCWD returns a default branch directory for a given working directory.
+func DefaultTargetDirFromCWD(cwd string) string {
+	return filepath.Join(cwd, ".clorch", "branches", shortID())
 }
 
 func shortID() string {

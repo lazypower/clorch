@@ -5,6 +5,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lazypower/clorch/internal/branch"
 	"github.com/lazypower/clorch/internal/config"
 	"github.com/lazypower/clorch/internal/hooks"
 	"github.com/lazypower/clorch/internal/notify"
@@ -70,7 +71,15 @@ func Execute() {
 		},
 	}
 
-	rootCmd.AddCommand(initCmd, uninstallCmd, statusCmd, listCmd, widgetCmd, versionCmd)
+	spawnCmd := &cobra.Command{
+		Use:   "spawn",
+		Short: "Create a worktree with claude + shell in a tmux window",
+		RunE:  runSpawn,
+	}
+	spawnCmd.Flags().StringP("label", "l", "", "Display label for the session")
+	spawnCmd.Flags().StringP("dir", "d", "", "Target directory (default: .clorch/branches/<id>)")
+
+	rootCmd.AddCommand(initCmd, uninstallCmd, statusCmd, listCmd, widgetCmd, versionCmd, spawnCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -176,6 +185,37 @@ func runList(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%-12s %-20s %-18s %-10d %-6d\n",
 			a.Status, name, a.GitBranch, a.ToolCount, a.PID)
 	}
+	return nil
+}
+
+func runSpawn(cmd *cobra.Command, args []string) error {
+	session, err := tmux.CurrentSession()
+	if err != nil {
+		return fmt.Errorf("detecting tmux: %w", err)
+	}
+	if session == "" {
+		return fmt.Errorf("clorch spawn must be run inside a tmux session")
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting cwd: %w", err)
+	}
+
+	label, _ := cmd.Flags().GetString("label")
+	targetDir, _ := cmd.Flags().GetString("dir")
+
+	result := branch.Spawn(branch.SpawnOptions{
+		SourceDir:   cwd,
+		TargetDir:   targetDir,
+		Label:       label,
+		TmuxSession: session,
+	})
+	if result.Err != nil {
+		return result.Err
+	}
+
+	fmt.Printf("Spawned window %q at %s\n", result.WindowName, result.WorkDir)
 	return nil
 }
 
