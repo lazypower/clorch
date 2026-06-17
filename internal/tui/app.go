@@ -120,7 +120,16 @@ type SpawnResultMsg struct {
 	Result branch.SpawnResult
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+// Init does an immediate scan so existing agents show on startup. The watcher
+// only emits on filesystem events, so without this the dashboard would read
+// "no active agents" until a hook next modifies a state file.
+func (m Model) Init() tea.Cmd {
+	mgr := m.stateManager
+	return func() tea.Msg {
+		agents, summary, queue := mgr.Scan()
+		return state.StateUpdateMsg{Agents: agents, Summary: summary, Queue: queue}
+	}
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
