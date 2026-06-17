@@ -25,16 +25,28 @@ STATE=$(echo "$STATE" | jq --arg e "Notification" '.last_event = $e')
 STATE=$(echo "$STATE" | jq --arg t "$NOW" '.last_event_time = $t')
 
 NEW_STATUS=""
+CURRENT_STATUS=$(echo "$STATE" | jq -r '.status // empty')
+
+maybe_idle() {
+    # maybe_idle sets IDLE unless a real prompt is already pending — an idle
+    # notification must never clobber a genuine permission/question wait.
+    if [ "$CURRENT_STATUS" != "WAITING_PERMISSION" ] && [ "$CURRENT_STATUS" != "WAITING_ANSWER" ]; then
+        echo "IDLE"
+    fi
+}
+
 case "$NOTIFICATION_TYPE" in
     permission_prompt) NEW_STATUS="WAITING_PERMISSION" ;;
     elicitation_dialog) NEW_STATUS="WAITING_ANSWER" ;;
-    idle_prompt) NEW_STATUS="WAITING_ANSWER" ;;
+    idle_prompt) NEW_STATUS=$(maybe_idle) ;;
     *)
         MSG_LOWER=$(echo "$MESSAGE" | tr '[:upper:]' '[:lower:]')
         if echo "$MSG_LOWER" | grep -q "permission"; then
             NEW_STATUS="WAITING_PERMISSION"
-        elif echo "$MSG_LOWER" | grep -qE "question|input|answer|elicitation"; then
+        elif echo "$MSG_LOWER" | grep -qE "question|answer|elicitation|respond"; then
             NEW_STATUS="WAITING_ANSWER"
+        elif echo "$MSG_LOWER" | grep -qE "waiting for your input|idle"; then
+            NEW_STATUS=$(maybe_idle)
         fi
         ;;
 esac
@@ -47,7 +59,10 @@ TMPFILE=$(mktemp "$STATE_DIR/.tmp.XXXXXX")
 echo "$STATE" | jq '.' > "$TMPFILE"
 mv "$TMPFILE" "$STATE_FILE"
 
-# Only fire bell/notification for events that need human attention
+# Fire the bell/notification whenever the agent wants you: blocked on a
+# permission or question, or gone idle waiting for your next message. (Empty
+# NEW_STATUS means nothing actionable changed, e.g. an idle prompt while a real
+# wait is already pending, so it stays quiet.)
 if [ -n "$NEW_STATUS" ]; then
     printf '\a' 2>/dev/null || true
 
