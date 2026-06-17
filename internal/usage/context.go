@@ -37,15 +37,16 @@ func ContextWindowPct(lastInput int64, capacity int64) float64 {
 }
 
 // ContextPctColor returns a Nord-palette color based on context fill percentage.
-// <60% green, 60-80% yellow, 80%+ red.
-func ContextPctColor(pct float64) lipgloss.Color {
+// <60% green, 60-80% yellow, 80%+ red. The Light variants are darkened so they
+// stay legible on a white terminal background.
+func ContextPctColor(pct float64) lipgloss.TerminalColor {
 	if pct >= 80 {
-		return lipgloss.Color("#bf616a") // nord red
+		return lipgloss.AdaptiveColor{Light: "#b02a37", Dark: "#bf616a"} // nord red
 	}
 	if pct >= 60 {
-		return lipgloss.Color("#ebcb8b") // nord yellow
+		return lipgloss.AdaptiveColor{Light: "#8a6a2b", Dark: "#ebcb8b"} // nord yellow
 	}
-	return lipgloss.Color("#a3be8c") // nord green
+	return lipgloss.AdaptiveColor{Light: "#4f7a3a", Dark: "#a3be8c"} // nord green
 }
 
 // RenderContextGauge renders a bar gauge like [████░░░░] 67%
