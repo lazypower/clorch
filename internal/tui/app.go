@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -120,10 +121,37 @@ type SpawnResultMsg struct {
 	Result branch.SpawnResult
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+// refreshInterval drives a periodic re-scan so time-based fields stay current
+// between filesystem events. StaleDuration (the "Ns ago" column) is computed
+// at scan time, so a repaint alone won't advance it — we re-scan. 10s matches
+// the usage tracker's cadence.
+const refreshInterval = 10 * time.Second
+
+type tickMsg time.Time
+
+func scanCmd(mgr *state.Manager) tea.Cmd {
+	return func() tea.Msg {
+		agents, summary, queue := mgr.Scan()
+		return state.StateUpdateMsg{Agents: agents, Summary: summary, Queue: queue}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// Init scans immediately so existing agents show on startup (the watcher only
+// emits on filesystem events) and starts the periodic refresh tick.
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(scanCmd(m.stateManager), tickCmd())
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tickMsg:
+		// Re-scan to refresh time-based fields, then reschedule.
+		return m, tea.Batch(scanCmd(m.stateManager), tickCmd())
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
