@@ -1,6 +1,10 @@
 package usage
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 func TestModelContextCapacity(t *testing.T) {
 	tests := []struct {
@@ -43,28 +47,30 @@ func TestContextWindowPct(t *testing.T) {
 }
 
 func TestContextPctColor(t *testing.T) {
-	green := ContextPctColor(0)
-	if green != "#a3be8c" {
+	// Compare the Dark variant, which carries the original Nord hue.
+	darkHue := func(pct float64) string {
+		c, ok := ContextPctColor(pct).(lipgloss.AdaptiveColor)
+		if !ok {
+			t.Fatalf("%v%% color is not an AdaptiveColor", pct)
+		}
+		return c.Dark
+	}
+	if green := darkHue(0); green != "#a3be8c" {
 		t.Errorf("0%% color = %s, want green", green)
 	}
-	green59 := ContextPctColor(59.9)
-	if green59 != "#a3be8c" {
+	if green59 := darkHue(59.9); green59 != "#a3be8c" {
 		t.Errorf("59.9%% color = %s, want green", green59)
 	}
-	yellow := ContextPctColor(60)
-	if yellow != "#ebcb8b" {
+	if yellow := darkHue(60); yellow != "#ebcb8b" {
 		t.Errorf("60%% color = %s, want yellow", yellow)
 	}
-	yellow79 := ContextPctColor(79.9)
-	if yellow79 != "#ebcb8b" {
+	if yellow79 := darkHue(79.9); yellow79 != "#ebcb8b" {
 		t.Errorf("79.9%% color = %s, want yellow", yellow79)
 	}
-	red := ContextPctColor(80)
-	if red != "#bf616a" {
+	if red := darkHue(80); red != "#bf616a" {
 		t.Errorf("80%% color = %s, want red", red)
 	}
-	red100 := ContextPctColor(100)
-	if red100 != "#bf616a" {
+	if red100 := darkHue(100); red100 != "#bf616a" {
 		t.Errorf("100%% color = %s, want red", red100)
 	}
 }
