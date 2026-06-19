@@ -261,12 +261,13 @@ All summaries capped at 500 chars.
 
 **`notify_handler.sh.tmpl`** — Registered for `Notification` events only.
 
-Determines status from the `message` field via keyword matching:
-- Contains "permission" (case-insensitive) → `WAITING_PERMISSION`
-- Contains "question", "input", "answer", or "elicitation" → `WAITING_ANSWER`
+Determines status from the `notification_type` field, falling back to `message` keyword matching when it's absent:
+- `permission_prompt` (or message contains "permission") → `WAITING_PERMISSION`
+- `elicitation_dialog` (or message contains "question", "answer", "elicitation", "respond") → `WAITING_ANSWER`
+- `idle_prompt` (or an idle "waiting for your input" message) → `IDLE`, but only when not already `WAITING_PERMISSION`/`WAITING_ANSWER`. An idle prompt means Claude is waiting for the next message, not blocked on a question, so it must not clobber a real pending wait.
 - Otherwise → no status change, just update `notification_message`
 
-Also fires terminal bell (`\a`) and macOS native notification via `osascript`.
+Fires the terminal bell (`\a`) and a macOS native notification via `osascript` whenever it sets a status — the agent wants you, whether blocked (permission/answer) or idle — and stays quiet otherwise.
 
 **All hooks are registered with `"async": true`** so they don't block Claude Code's execution. Exit code doesn't matter for async hooks.
 
@@ -871,7 +872,7 @@ Items that need clarification or may break across Claude Code versions:
 
 2. **`history.jsonl` format is undocumented.** The `sessionId` and `display` fields are inferred from upstream's parser. The file lives at `~/.claude/history.jsonl`. Unknown whether this is a stable interface or internal implementation detail.
 
-3. **Notification message keyword matching is fragile.** The notify handler determines `WAITING_PERMISSION` vs `WAITING_ANSWER` by checking if the `message` field contains "permission", "question", "input", "answer", or "elicitation". If Claude Code changes notification wording, status detection breaks. The `notification_type` field (`"permission_prompt"`, `"idle_prompt"`, `"elicitation_dialog"`) would be more reliable — upstream doesn't use it yet but we should prefer it when present and fall back to keyword matching.
+3. **Notification status detection.** The notify handler keys off the `notification_type` field (`"permission_prompt"` → `WAITING_PERMISSION`, `"elicitation_dialog"` → `WAITING_ANSWER`, `"idle_prompt"` → `IDLE`), falling back to `message` keyword matching only when the type is absent. `idle_prompt` maps to `IDLE`, not a blocking question — it just means Claude is waiting for the next message. Remaining fragility: if `notification_type` is ever missing, the keyword fallback still depends on notification wording.
 
 4. **`Stop` event after permission denial.** Claude Code does **not** fire a `Stop` event when the user denies a permission. The session goes to an "Interrupted" state with no hook. This means `WAITING_PERMISSION` can persist in the state file after the user has already acted. The stale permission reset (§4.2) handles this, but only for dead PIDs. For live sessions where the user denied from the terminal, the state will correct itself on the next `UserPromptSubmit` or `PreToolUse` event.
 
