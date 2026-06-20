@@ -16,7 +16,10 @@ import (
 // rest of the detail content as new events stream in.
 const recentActivityCount = 5
 
-func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, sessionCost usage.SessionCost) string {
+// renderAgentDetail draws the detail panel. events holds at most
+// recentActivityCount entries (the tail of the log); totalEvents is the full
+// count, used only to render the "N older" overflow hint.
+func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, totalEvents int, sessionCost usage.SessionCost) string {
 	title := sectionTitleStyle.Render("DETAIL")
 	name := a.ProjectName
 	if a.BranchLabel != "" {
@@ -145,12 +148,11 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 		// Show the most recent events, newest at top. Bounded by
 		// recentActivityCount — the full log is in the history view (h).
 		showCount := minInt(len(events), recentActivityCount)
-		start := len(events) - showCount
-		for i := len(events) - 1; i >= start; i-- {
+		for i := len(events) - 1; i >= len(events)-showCount; i-- {
 			lines = append(lines, formatEventLine(events[i], 55))
 		}
-		if start > 0 {
-			lines = append(lines, agentIdleStyle.Render(fmt.Sprintf("  ▲ %d older — press h for full history", start)))
+		if older := totalEvents - showCount; older > 0 {
+			lines = append(lines, agentIdleStyle.Render(fmt.Sprintf("  ▲ %d older — press h for full history", older)))
 		}
 	}
 
@@ -165,6 +167,23 @@ func formatEventLine(ev state.TimelineEvent, maxSummary int) string {
 		summary = summary[:maxSummary-3] + "..."
 	}
 	return fmt.Sprintf("  %s  %s  %s", formatEventTime(ev.Time), formatEventType(ev.Event), agentIdleStyle.Render(summary))
+}
+
+// historyVisibleRows is the number of event rows the history view can show for
+// a given terminal height: chrome (title, two blanks, footer) reserves 4 lines.
+func historyVisibleRows(height int) int {
+	v := height - 4
+	if v < 1 {
+		v = 1
+	}
+	return v
+}
+
+// historyMaxScrollFor is the largest valid scroll offset for total events at
+// the given terminal height — the point past which no further older entries
+// remain to reveal.
+func historyMaxScrollFor(total, height int) int {
+	return maxInt(0, total-historyVisibleRows(height))
 }
 
 // renderHistory draws the full, scrollable session history as a standalone
@@ -185,13 +204,9 @@ func renderHistory(a state.AgentState, events []state.TimelineEvent, scroll, wid
 		return strings.Join([]string{title, "", agentIdleStyle.Render("  no events recorded"), "", hint}, "\n")
 	}
 
-	// Reserve: title(1) + blank(1) + blank(1) + footer(1).
-	visible := height - 4
-	if visible < 1 {
-		visible = 1
-	}
+	visible := historyVisibleRows(height)
 
-	maxScroll := maxInt(0, len(events)-visible)
+	maxScroll := historyMaxScrollFor(len(events), height)
 	if scroll > maxScroll {
 		scroll = maxScroll
 	}

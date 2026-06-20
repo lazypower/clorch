@@ -32,6 +32,10 @@ type Model struct {
 
 	historyMode   bool
 	historyScroll int
+	// historyEvents is a snapshot of the selected session's full log, loaded
+	// once when history mode opens. Reading it on every scroll keypress would
+	// re-parse the whole log from disk and lag input on long sessions.
+	historyEvents []state.TimelineEvent
 	yoloEnabled   bool
 	soundEnabled  bool
 
@@ -396,6 +400,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.History), msg.Type == tea.KeyEsc, key.Matches(msg, keys.Quit):
 				m.historyMode = false
 				m.historyScroll = 0
+				m.historyEvents = nil
 			case key.Matches(msg, keys.Down):
 				m.historyScroll++
 			case key.Matches(msg, keys.Up):
@@ -445,6 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedIdx < len(m.agents) {
 				m.historyMode = true
 				m.historyScroll = 0
+				m.historyEvents = state.ReadAllEvents(m.stateManager.StateDir(), m.agents[m.selectedIdx].SessionID)
 			}
 		case key.Matches(msg, keys.Inject):
 			m.injectMode = true
@@ -491,19 +497,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// historyMaxScroll returns the largest valid scroll offset for the selected
-// session's history given the current terminal height. Matches the visible-row
-// math in renderHistory (height - 4 of chrome).
+// historyMaxScroll returns the largest valid scroll offset for the cached
+// session history at the current terminal height. Operates on the snapshot
+// loaded when history mode opened — no disk read per keypress.
 func (m Model) historyMaxScroll() int {
-	if m.selectedIdx >= len(m.agents) {
-		return 0
-	}
-	events := state.ReadEvents(m.stateManager.StateDir(), m.agents[m.selectedIdx].SessionID, 1000)
-	visible := m.height - 4
-	if visible < 1 {
-		visible = 1
-	}
-	return maxInt(0, len(events)-visible)
+	return historyMaxScrollFor(len(m.historyEvents), m.height)
 }
 
 func (m Model) View() string {
@@ -514,9 +512,7 @@ func (m Model) View() string {
 		return m.renderHelp()
 	}
 	if m.historyMode && m.selectedIdx < len(m.agents) {
-		agent := m.agents[m.selectedIdx]
-		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, 1000)
-		return renderHistory(agent, events, m.historyScroll, m.width, m.height)
+		return renderHistory(m.agents[m.selectedIdx], m.historyEvents, m.historyScroll, m.width, m.height)
 	}
 
 	header := renderHeader(m.summary, m.usageSummary, m.yoloEnabled, m.version, m.width)
@@ -532,8 +528,8 @@ func (m Model) View() string {
 	rightPanel := sectionTitleStyle.Render("ACTIONS") + "\n" + renderActionQueue(m.actionQueue, m.focusedAction)
 	if m.showDetail && m.selectedIdx < len(m.agents) {
 		agent := m.agents[m.selectedIdx]
-		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, recentActivityCount)
-		rightPanel = renderAgentDetail(agent, events, sessionCosts[agent.SessionID])
+		events, total := state.ReadEventsTail(m.stateManager.StateDir(), agent.SessionID, recentActivityCount)
+		rightPanel = renderAgentDetail(agent, events, total, sessionCosts[agent.SessionID])
 	}
 
 	// Body height: total height minus header(1) + top separator(1) + bottom separator(1) + footer(1)
