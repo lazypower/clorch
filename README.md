@@ -214,6 +214,17 @@ Displayed in the TUI header. No API keys needed — it reads the local transcrip
 
 Rewrite of [androsovm/clorch](https://github.com/androsovm/clorch) (Python/Textual). Same state protocol, same hook scripts, same rules format. Drop-in replacement — no hook reinstall needed if you're migrating. As of v0.7.0, includes ported features from upstream through v0.4.0 (context gauge, subagent hierarchy, responsive columns, tmux safety) adapted to Go/BubbleTea architecture.
 
+## Contributors
+
+clorch is built in the open and shaped by its community. Huge thanks to everyone
+who has sent a patch, filed an issue, or kicked the tires.
+
+- [@markusboehme](https://github.com/markusboehme) — startup state scan, smarter
+  idle-notification handling, and an adaptive TUI palette that finally looks
+  right on light terminals.
+
+Want to join the list? Issues and pull requests are welcome.
+
 ## License
 
 MIT
