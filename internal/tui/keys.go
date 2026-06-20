@@ -12,6 +12,7 @@ type keyMap struct {
 	YOLO       key.Binding
 	Sound      key.Binding
 	Detail     key.Binding
+	History    key.Binding
 	Inject     key.Binding
 	Branch     key.Binding
 	Label      key.Binding
@@ -31,6 +32,7 @@ var keys = keyMap{
 	YOLO:       key.NewBinding(key.WithKeys("!"), key.WithHelp("!", "toggle YOLO")),
 	Sound:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "toggle sound")),
 	Detail:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail panel")),
+	History:    key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "session history")),
 	Inject:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inject prompt")),
 	Branch:     key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch session")),
 	Label:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "label agent")),
