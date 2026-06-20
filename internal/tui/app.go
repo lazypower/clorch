@@ -29,6 +29,9 @@ type Model struct {
 	focusedAction string
 	showDetail    bool
 	showHelp      bool
+
+	historyMode   bool
+	historyScroll int
 	yoloEnabled   bool
 	soundEnabled  bool
 
@@ -388,6 +391,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = false
 			return m, nil
 		}
+		if m.historyMode {
+			switch {
+			case key.Matches(msg, keys.History), msg.Type == tea.KeyEsc, key.Matches(msg, keys.Quit):
+				m.historyMode = false
+				m.historyScroll = 0
+			case key.Matches(msg, keys.Down):
+				m.historyScroll++
+			case key.Matches(msg, keys.Up):
+				if m.historyScroll > 0 {
+					m.historyScroll--
+				}
+			case msg.String() == "g":
+				m.historyScroll = 0
+			case msg.String() == "G":
+				m.historyScroll = m.historyMaxScroll()
+			}
+			if m.historyScroll > m.historyMaxScroll() {
+				m.historyScroll = m.historyMaxScroll()
+			}
+			return m, nil
+		}
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -417,6 +441,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifier.SetSound(m.soundEnabled)
 		case key.Matches(msg, keys.Detail):
 			m.showDetail = !m.showDetail
+		case key.Matches(msg, keys.History):
+			if m.selectedIdx < len(m.agents) {
+				m.historyMode = true
+				m.historyScroll = 0
+			}
 		case key.Matches(msg, keys.Inject):
 			m.injectMode = true
 			m.injectInput.SetValue("")
@@ -462,12 +491,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// historyMaxScroll returns the largest valid scroll offset for the selected
+// session's history given the current terminal height. Matches the visible-row
+// math in renderHistory (height - 4 of chrome).
+func (m Model) historyMaxScroll() int {
+	if m.selectedIdx >= len(m.agents) {
+		return 0
+	}
+	events := state.ReadEvents(m.stateManager.StateDir(), m.agents[m.selectedIdx].SessionID, 1000)
+	visible := m.height - 4
+	if visible < 1 {
+		visible = 1
+	}
+	return maxInt(0, len(events)-visible)
+}
+
 func (m Model) View() string {
 	if m.width == 0 {
 		return "Loading..."
 	}
 	if m.showHelp {
 		return m.renderHelp()
+	}
+	if m.historyMode && m.selectedIdx < len(m.agents) {
+		agent := m.agents[m.selectedIdx]
+		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, 1000)
+		return renderHistory(agent, events, m.historyScroll, m.width, m.height)
 	}
 
 	header := renderHeader(m.summary, m.usageSummary, m.yoloEnabled, m.version, m.width)
@@ -483,13 +532,8 @@ func (m Model) View() string {
 	rightPanel := sectionTitleStyle.Render("ACTIONS") + "\n" + renderActionQueue(m.actionQueue, m.focusedAction)
 	if m.showDetail && m.selectedIdx < len(m.agents) {
 		agent := m.agents[m.selectedIdx]
-		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, 200)
-		// Panel height: total height minus header(1), two separators(2), footer(1)
-		panelHeight := m.height - 4
-		if panelHeight < 10 {
-			panelHeight = 10
-		}
-		rightPanel = renderAgentDetail(agent, events, sessionCosts[agent.SessionID], panelHeight)
+		events := state.ReadEvents(m.stateManager.StateDir(), agent.SessionID, recentActivityCount)
+		rightPanel = renderAgentDetail(agent, events, sessionCosts[agent.SessionID])
 	}
 
 	// Body height: total height minus header(1) + top separator(1) + bottom separator(1) + footer(1)
@@ -619,6 +663,7 @@ func (m Model) renderHelp() string {
     j/k, ↑/↓     Move selection in agent list
     Enter, →      Jump to selected agent's tmux pane
     d             Toggle agent detail panel
+    h             Open scrollable session history (j/k scroll, g/G top/bottom)
 
   Actions
     a-z           Focus action item by letter

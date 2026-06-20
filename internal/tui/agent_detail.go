@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -9,7 +10,13 @@ import (
 	"github.com/lazypower/clorch/internal/usage"
 )
 
-func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, sessionCost usage.SessionCost, panelHeight int) string {
+// recentActivityCount bounds the inline timeline in the detail panel. The full
+// log lives in the scrollable history view (h) — keeping the panel preview
+// fixed stops a long-running session from dominating the panel and shifting the
+// rest of the detail content as new events stream in.
+const recentActivityCount = 5
+
+func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, sessionCost usage.SessionCost) string {
 	title := sectionTitleStyle.Render("DETAIL")
 	name := a.ProjectName
 	if a.BranchLabel != "" {
@@ -90,23 +97,42 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 	}
 
 	if len(a.Subagents) > 0 {
-		meta = append(meta, "")
-		meta = append(meta, sectionTitleStyle.Render(fmt.Sprintf("SUBAGENTS (%d)", len(a.Subagents))))
+		// Only render bubbles for running subagents — a long session can spawn
+		// hundreds, and one row each (the dead ones never go away) buries the
+		// rest of the detail. Finished subagents collapse into a count, and the
+		// running list is sorted newest-first for a stable order (the map
+		// itself iterates randomly) and capped.
+		var running []state.SubAgent
 		for _, sub := range a.Subagents {
-			statusIcon := agentWorkingStyle.Render("●")
-			if sub.Status != "running" {
-				statusIcon = agentIdleStyle.Render("○")
+			if sub.Status == "running" {
+				running = append(running, sub)
 			}
+		}
+		sort.Slice(running, func(i, j int) bool {
+			return running[i].StartedAt > running[j].StartedAt
+		})
+		finished := len(a.Subagents) - len(running)
+
+		header := fmt.Sprintf("SUBAGENTS (%d running", len(running))
+		if finished > 0 {
+			header += fmt.Sprintf(", %d done", finished)
+		}
+		header += ")"
+		meta = append(meta, "")
+		meta = append(meta, sectionTitleStyle.Render(header))
+
+		const maxSubagentRows = 10
+		shown := running
+		if len(shown) > maxSubagentRows {
+			shown = shown[:maxSubagentRows]
+		}
+		for _, sub := range shown {
+			statusIcon := agentWorkingStyle.Render("●")
 			meta = append(meta, fmt.Sprintf("  %s %s  %s", statusIcon, sub.AgentType, agentIdleStyle.Render(sub.AgentID[:minInt(12, len(sub.AgentID))])))
 		}
-	}
-
-	// Calculate how many timeline lines we can fit
-	// title(1) + meta lines + timeline header(2: blank + "TIMELINE") + hint(1)
-	usedLines := 1 + len(meta) + 2
-	availableForTimeline := panelHeight - usedLines - 1
-	if availableForTimeline < 3 {
-		availableForTimeline = 3
+		if len(running) > maxSubagentRows {
+			meta = append(meta, agentIdleStyle.Render(fmt.Sprintf("  … %d more running", len(running)-maxSubagentRows)))
+		}
 	}
 
 	var lines []string
@@ -114,27 +140,86 @@ func renderAgentDetail(a state.AgentState, events []state.TimelineEvent, session
 
 	if len(events) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, sectionTitleStyle.Render("TIMELINE"))
+		lines = append(lines, sectionTitleStyle.Render("RECENT ACTIVITY"))
 
-		// Show most recent events that fit, newest at top
-		showCount := minInt(len(events), availableForTimeline)
+		// Show the most recent events, newest at top. Bounded by
+		// recentActivityCount — the full log is in the history view (h).
+		showCount := minInt(len(events), recentActivityCount)
 		start := len(events) - showCount
 		for i := len(events) - 1; i >= start; i-- {
-			ev := events[i]
-			ts := formatEventTime(ev.Time)
-			eventStyled := formatEventType(ev.Event)
-			summary := ev.Summary
-			if len(summary) > 55 {
-				summary = summary[:52] + "..."
-			}
-			lines = append(lines, fmt.Sprintf("  %s  %s  %s", ts, eventStyled, agentIdleStyle.Render(summary)))
+			lines = append(lines, formatEventLine(events[i], 55))
 		}
 		if start > 0 {
-			lines = append(lines, agentIdleStyle.Render(fmt.Sprintf("  ▲ %d older events", start)))
+			lines = append(lines, agentIdleStyle.Render(fmt.Sprintf("  ▲ %d older — press h for full history", start)))
 		}
 	}
 
 	return title + "\n" + strings.Join(lines, "\n")
+}
+
+// formatEventLine renders a single timeline event row, truncating the summary
+// to maxSummary characters. Shared by the detail preview and history view.
+func formatEventLine(ev state.TimelineEvent, maxSummary int) string {
+	summary := ev.Summary
+	if len(summary) > maxSummary {
+		summary = summary[:maxSummary-3] + "..."
+	}
+	return fmt.Sprintf("  %s  %s  %s", formatEventTime(ev.Time), formatEventType(ev.Event), agentIdleStyle.Render(summary))
+}
+
+// renderHistory draws the full, scrollable session history as a standalone
+// view. Events are listed newest-first; scroll reveals older entries. height is
+// the total terminal height; chrome (title, blank, footer) is reserved here.
+func renderHistory(a state.AgentState, events []state.TimelineEvent, scroll, width, height int) string {
+	name := a.ProjectName
+	if a.BranchLabel != "" {
+		name = a.BranchLabel
+	} else if a.DisplayName != "" {
+		name = a.DisplayName
+	}
+
+	title := sectionTitleStyle.Render("HISTORY") + agentIdleStyle.Render("  "+name)
+
+	if len(events) == 0 {
+		hint := footerStyle.Render("esc/h:close")
+		return strings.Join([]string{title, "", agentIdleStyle.Render("  no events recorded"), "", hint}, "\n")
+	}
+
+	// Reserve: title(1) + blank(1) + blank(1) + footer(1).
+	visible := height - 4
+	if visible < 1 {
+		visible = 1
+	}
+
+	maxScroll := maxInt(0, len(events)-visible)
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+
+	// Newest-first: index 0 of the display = last event. Trim summary to fit
+	// width, leaving room for the timestamp + type columns.
+	summaryWidth := width - 22
+	if summaryWidth < 20 {
+		summaryWidth = 20
+	}
+
+	var lines []string
+	for row := 0; row < visible; row++ {
+		idx := len(events) - 1 - (scroll + row)
+		if idx < 0 {
+			break
+		}
+		lines = append(lines, formatEventLine(events[idx], summaryWidth))
+	}
+
+	first := scroll + 1
+	last := scroll + len(lines)
+	hint := footerStyle.Render(fmt.Sprintf("j/k:scroll  g/G:top/bottom  esc/h:close   %d–%d of %d", first, last, len(events)))
+
+	return strings.Join([]string{title, "", strings.Join(lines, "\n"), "", hint}, "\n")
 }
 
 func formatEventTime(raw string) string {
