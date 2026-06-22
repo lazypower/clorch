@@ -113,7 +113,7 @@ func TestParseSkipsNonAssistant(t *testing.T) {
 	}
 }
 
-func TestParseIncrementalReads(t *testing.T) {
+func TestParsePollReturnsCumulativeTotals(t *testing.T) {
 	dir := t.TempDir()
 	projDir := filepath.Join(dir, "proj1")
 	os.MkdirAll(projDir, 0755)
@@ -135,9 +135,14 @@ func TestParseIncrementalReads(t *testing.T) {
 	f.Close()
 
 	pr2 := parser.Poll()
-	// Second poll should only get new data
-	if pr2.Total.InputTokens != 2000 {
-		t.Errorf("second poll: input = %d, want 2000 (incremental)", pr2.Total.InputTokens)
+	// Second poll should include the previous total plus the appended data.
+	if pr2.Total.InputTokens != 3000 {
+		t.Errorf("second poll: input = %d, want 3000 (cumulative)", pr2.Total.InputTokens)
+	}
+
+	pr3 := parser.Poll()
+	if pr3.Total.InputTokens != 3000 {
+		t.Errorf("idle poll: input = %d, want 3000 (stable cumulative total)", pr3.Total.InputTokens)
 	}
 }
 

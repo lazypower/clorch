@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -12,12 +13,14 @@ import (
 type Parser struct {
 	projectsDir string
 	offsets     map[string]int64
+	files       map[string]SessionTokens
 }
 
 func NewParser(projectsDir string) *Parser {
 	return &Parser{
 		projectsDir: projectsDir,
 		offsets:     make(map[string]int64),
+		files:       make(map[string]SessionTokens),
 	}
 }
 
@@ -51,20 +54,38 @@ type PollResult struct {
 func (p *Parser) Poll() PollResult {
 	result := PollResult{PerSession: make(map[string]SessionTokens)}
 
-	for _, path := range p.discoverFiles() {
-		tokens, model := p.parseFile(path)
-		result.Total.InputTokens += tokens.InputTokens
-		result.Total.OutputTokens += tokens.OutputTokens
-		result.Total.CacheCreationTokens += tokens.CacheCreationTokens
-		result.Total.CacheReadTokens += tokens.CacheReadTokens
-		if model != "" {
-			result.Model = model
+	files := p.discoverFiles()
+	active := make(map[string]bool)
+	for _, path := range files {
+		active[path] = true
+		p.parseFile(path)
+	}
+	for path := range p.files {
+		if !active[path] {
+			delete(p.files, path)
+			delete(p.offsets, path)
+		}
+	}
+	for _, path := range files {
+		st, ok := p.files[path]
+		if !ok {
+			continue
+		}
+		result.Total.InputTokens += st.Tokens.InputTokens
+		result.Total.OutputTokens += st.Tokens.OutputTokens
+		result.Total.CacheCreationTokens += st.Tokens.CacheCreationTokens
+		result.Total.CacheReadTokens += st.Tokens.CacheReadTokens
+		if st.Tokens.LastInput > 0 {
+			result.Total.LastInput = st.Tokens.LastInput
+		}
+		if st.Model != "" {
+			result.Model = st.Model
 		}
 
 		base := filepath.Base(path)
 		sessionID := strings.TrimSuffix(base, ".jsonl")
 		if sessionID != base {
-			result.PerSession[sessionID] = SessionTokens{Tokens: tokens, Model: model}
+			result.PerSession[sessionID] = st
 		}
 	}
 	return result
@@ -72,6 +93,7 @@ func (p *Parser) Poll() PollResult {
 
 func (p *Parser) Reset() {
 	p.offsets = make(map[string]int64)
+	p.files = make(map[string]SessionTokens)
 }
 
 func (p *Parser) discoverFiles() []string {
@@ -94,22 +116,28 @@ func (p *Parser) discoverFiles() []string {
 			files = append(files, filepath.Join(dir, entry.Name()))
 		}
 	}
+	sort.Strings(files)
 	return files
 }
 
-func (p *Parser) parseFile(path string) (TokenUsage, string) {
+func (p *Parser) parseFile(path string) {
 	var tokens TokenUsage
 	var model string
 
 	f, err := os.Open(path)
 	if err != nil {
-		return tokens, model
+		return
 	}
 	defer f.Close()
 
+	if info, err := f.Stat(); err == nil && info.Size() < p.offsets[path] {
+		p.offsets[path] = 0
+		delete(p.files, path)
+	}
+
 	if offset := p.offsets[path]; offset > 0 {
 		if _, err := f.Seek(offset, 0); err != nil {
-			return tokens, model
+			return
 		}
 	}
 
@@ -141,5 +169,17 @@ func (p *Parser) parseFile(path string) (TokenUsage, string) {
 
 	newOffset, _ := f.Seek(0, 1)
 	p.offsets[path] = newOffset
-	return tokens, model
+
+	st := p.files[path]
+	st.Tokens.InputTokens += tokens.InputTokens
+	st.Tokens.OutputTokens += tokens.OutputTokens
+	st.Tokens.CacheCreationTokens += tokens.CacheCreationTokens
+	st.Tokens.CacheReadTokens += tokens.CacheReadTokens
+	if tokens.LastInput > 0 {
+		st.Tokens.LastInput = tokens.LastInput
+	}
+	if model != "" {
+		st.Model = model
+	}
+	p.files[path] = st
 }
