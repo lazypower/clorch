@@ -228,3 +228,7 @@ Want to join the list? Issues and pull requests are welcome.
 ## License
 
 MIT
+
+## Pricing Caveat
+
+clorch cost estimates use standard first-party Claude API pricing from Anthropic's public pricing page. Pricing was checked on June 22, 2026. The estimate is limited to fields available in Claude Code JSONL transcripts and may not include pricing modifiers such as 1-hour cache writes, data residency, Fast Mode, Batch API discounts, cloud-provider regional premiums, or negotiated/private pricing.

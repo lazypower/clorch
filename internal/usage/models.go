@@ -10,8 +10,10 @@ type TokenUsage struct {
 }
 
 type ModelPrice struct {
-	Input  float64
-	Output float64
+	Input      float64
+	CacheWrite float64
+	CacheRead  float64
+	Output     float64
 }
 
 // SessionCost holds computed cost for a single session.
